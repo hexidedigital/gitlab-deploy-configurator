@@ -6,6 +6,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "brunocfalcao/blade-feather-icons": "^4.0",
         "filament/filament": "^3.2",
         "graham-campbell/gitlab": "^7.5",
         "laravel/framework": "^11.0",

@@ -2,6 +2,11 @@
 
 return [
 
+    'gitlab' => [
+        'token' => env('GITLAB_TOKEN'),
+        'url' => env('GITLAB_URL', 'https://gitlab.com'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services
