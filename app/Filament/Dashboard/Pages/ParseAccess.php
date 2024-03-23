@@ -112,7 +112,6 @@ DOC;
                             ->required()
                             ->extraInputAttributes([
                                 'rows' => 15,
-                                'class' => 'font-mono',
                             ])
                             ->afterStateUpdated(function (?string $state) {
                                 try {
@@ -172,7 +171,6 @@ DOC;
                                 ->readOnly()
                                 ->extraInputAttributes([
                                     'rows' => 20,
-                                    'class' => 'font-mono',
                                 ]);
                         }
 
