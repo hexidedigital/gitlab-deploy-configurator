@@ -36,7 +36,7 @@ class AccessParser
                         'database' => $this->getDatabase($lines),
                     ];
                 }
-                if ($type->startsWith('mail')) {
+                if ($type->startsWith(['mail', 'smtp'])) {
                     return [
                         'mail' => $this->getMail($lines),
                     ];
