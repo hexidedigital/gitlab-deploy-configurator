@@ -160,9 +160,9 @@ DOC;
         if (!$this->isReadyToDeploy) {
             Notification::make()->title('Not ready to deploy')->danger()->send();
 
-            dump($this->form->getState());
+//            dump($this->form->getState());
 
-            return;
+//            return;
         }
 
         $configurations = $this->form->getRawState();
@@ -170,9 +170,13 @@ DOC;
         $parser = new AccessParser();
         $parser->setConfigurations($configurations);
 
-        $parser->buildDeployPrepareConfig();
+        dd([
+            $this->form->getState(),
+            $this->data,
+            $parser->buildDeployPrepareConfig(),
+        ]);
 
-        dd($this->form->getState());
+        $this->createCommitWithConfigFiles();
     }
 
     public function form(Form $form): Form
@@ -466,7 +470,7 @@ DOC;
                                                     $set('accessInfo', $parser->getAccessInfo($get('name')));
                                                     $set('contents.deploy_php', $parser->contentForDeployerScript($get('name')));
 
-                                                    $set('../../contents.deploy_yml', $parser->contentForDeployPrepareConfig());
+                                                    $set('../../contents.deploy_yml', $parser->contentForDeployPrepareConfig($get('name')));
 
                                                     $notResolved = $parser->getNotResolved($get('name'));
 
@@ -621,7 +625,7 @@ DOC;
 
                                                             return response()->download($path)->deleteFileAfterSend();
                                                         }),
-                                                ]),
+                                                ])->extraAttributes(['class' => 'items-end']),
                                             ]),
                                         ];
                                     }),
@@ -659,7 +663,7 @@ DOC;
 
                                         return response()->download($path)->deleteFileAfterSend();
                                     }),
-                            ]),
+                            ])->extraAttributes(['class' => 'items-end']),
                         ]),
                     ]),
             ]);
@@ -689,7 +693,7 @@ DOC;
 
                 Forms\Components\Checkbox::make('isReadyToDeploy')
                     ->label('I confirm that I have checked all the data and I am ready to deploy')
-                    ->confirmed()
+                    ->accepted()
                     ->required(),
             ]);
     }
@@ -700,6 +704,7 @@ DOC;
         $this->reset([
             'isLaravelRepository',
             'emptyRepo',
+            'parsed',
             'data.projectInfo.laravel_version',
             'data.projectInfo.repository_template',
             'data.projectInfo.frontend_builder',

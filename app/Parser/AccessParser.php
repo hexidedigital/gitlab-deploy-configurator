@@ -39,12 +39,12 @@ class AccessParser
             : $this->notResolved;
     }
 
-    public function buildDeployPrepareConfig(?string $stageName = null): array
+    public function buildDeployPrepareConfig(?string $forceParseStageName = null): array
     {
         $stages = collect(data_get($this->configurations, 'stages'))
-            ->filter(function (array $stageConfig) use ($stageName) {
+            ->filter(function (array $stageConfig) use ($forceParseStageName) {
                 return ($stageConfig['can_be_parsed'] ?? false)
-                    || $stageName === $stageConfig['name'];
+                    || $forceParseStageName === $stageConfig['name'];
             })
             ->map(function (array $stageConfig) {
                 $stageName = data_get($stageConfig, 'name');
@@ -161,9 +161,9 @@ class AccessParser
         return $filesystem->path($file);
     }
 
-    public function contentForDeployPrepareConfig(): string
+    public function contentForDeployPrepareConfig(?string $forceParseStageName = null): string
     {
-        return Yaml::dump($this->buildDeployPrepareConfig(), 4, 2);
+        return Yaml::dump($this->buildDeployPrepareConfig($forceParseStageName), 4, 2);
     }
 
     public function contentForDeployerScript(?string $stageName = null): string

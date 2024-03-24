@@ -89,4 +89,56 @@ trait WithGitlab
             default => '(not-detected) . ' . $level,
         };
     }
+
+    protected function createCommitWithConfigFiles(): void
+    {
+        $this->makeGitlabManager();
+
+        $project_id = 689;
+        $stageName = 'test/dev/' . now()->format('His');
+
+        $project = $this->findProject($project_id);
+
+        $branches = collect($this->gitLabManager->repositories()->branches($project_id))
+            ->keyBy('name');
+
+        if (empty($branches)) {
+            return;
+        }
+        return;
+
+        // todo
+        $branches
+            ->filter(fn (array $branch) => str($branch)->startsWith('test'))
+            ->each(function (array $branch) use ($project_id) {
+                $this->gitLabManager->repositories()->deleteBranch($project_id, $branch['name']);
+            });
+
+        $defaultBranch = $project['default_branch'];
+        if (!$branches->has($stageName)) {
+//            $newBranch = $this->gitLabManager->repositories()->createBranch($project_id, $stageName, $defaultBranch);
+        }
+
+        // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
+        $this->gitLabManager->repositories()->createCommit($project_id, [
+            "branch" => $stageName,
+            "start_branch" => $defaultBranch,
+            "commit_message" => "Configure deployment " . now()->format('H:i:s'),
+            "author_name" => "DeployHelper",
+            "author_email" => "deploy-helper@hexide-digital.com",
+            "actions" => [
+                [
+                    "action" => "create",
+                    "file_path" => ".deploy/config-encoded.yml",
+                    "content" => base64_encode("test payload in base64"),
+                    "encoding" => "base64",
+                ],
+                [
+                    "action" => "create",
+                    "file_path" => ".deploy/config-raw.yml",
+                    "content" => "test payload in raw",
+                ],
+            ],
+        ]);
+    }
 }
