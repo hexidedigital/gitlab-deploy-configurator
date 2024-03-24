@@ -9,8 +9,8 @@ use Symfony\Component\Yaml\Yaml;
 
 class AccessParser
 {
-    const YML_CONFIG_VERSION = 1.4;
-    private string $input = '';
+    private const YML_CONFIG_VERSION = 1.4;
+
     private array $accessInfo = [];
     private array $configurations = [];
     private array $notResolved = [];
@@ -20,59 +20,68 @@ class AccessParser
         // ...
     }
 
-    public function setAccessInput(string $input): void
-    {
-        $this->input = $input;
-    }
-
     public function setConfigurations(array $configurations): void
     {
         $this->configurations = $configurations;
     }
 
-    public function getAccessInfo(): array
+    public function getAccessInfo(?string $stageName = null): ?array
     {
-        return $this->accessInfo;
+        return $stageName
+            ? data_get($this->accessInfo, $stageName)
+            : $this->accessInfo;
     }
 
-    public function getNotResolved(): array
+    public function getNotResolved(?string $stageName = null): array
     {
-        return $this->notResolved;
+        return $stageName
+            ? data_get($this->notResolved, $stageName, [])
+            : $this->notResolved;
     }
 
-    public function buildDeployPrepareConfig(): array
+    public function buildDeployPrepareConfig(?string $stageName = null): array
     {
-        $stageConfig = [
-            'name' => data_get($this->configurations, 'stage.name'),
-            'options' => [
-                'git-url' => data_get($this->configurations, 'stage.options.git_url'),
-                'base-dir-pattern' => data_get($this->configurations, 'stage.options.base_dir_pattern'),
-                'bin-composer' => data_get($this->configurations, 'stage.options.bin_composer'),
-                'bin-php' => data_get($this->configurations, 'stage.options.bin_php'),
-            ],
-            ...collect($this->accessInfo)
-                ->only(['database', 'mail', 'server'])
-                ->all(),
-        ];
+        $stages = collect(data_get($this->configurations, 'stages'))
+            ->filter(function (array $stageConfig) use ($stageName) {
+                return ($stageConfig['can_be_parsed'] ?? false)
+                    || $stageName === $stageConfig['name'];
+            })
+            ->map(function (array $stageConfig) {
+                $stageName = data_get($stageConfig, 'name');
+                $this->parseInputForAccessPayload($stageName, data_get($stageConfig, 'access_input'));
+
+                return [
+                    'name' => $stageName,
+                    'options' => [
+                        'git-url' => data_get($this->configurations, 'projectInfo.git_url'),
+                        'base-dir-pattern' => data_get($stageConfig, 'options.base_dir_pattern'),
+                        'bin-composer' => data_get($stageConfig, 'options.bin_composer'),
+                        'bin-php' => data_get($stageConfig, 'options.bin_php'),
+                    ],
+                    ...collect($this->accessInfo[$stageName])
+                        ->only(['database', 'mail', 'server'])
+                        ->all(),
+                ];
+            })
+            ->values()
+            ->toArray();
 
         return [
             'version' => self::YML_CONFIG_VERSION,
             'git-lab' => [
                 'project' => [
-                    'token' => data_get($this->configurations, 'gitlab.project.token'),
-                    'project-id' => data_get($this->configurations, 'gitlab.project.project_id'),
-                    'domain' => data_get($this->configurations, 'gitlab.project.domain'),
+                    'token' => data_get($this->configurations, 'projectInfo.token'),
+                    'project-id' => $this->retrieveProjectId(),
+                    'domain' => data_get($this->configurations, 'projectInfo.domain'),
                 ],
             ],
-            'stages' => [
-                $stageConfig,
-            ],
+            'stages' => $stages,
         ];
     }
 
-    public function parseInputForAccessPayload(): void
+    public function parseInputForAccessPayload(?string $stageName, ?string $accessInput): self
     {
-        $this->notResolved = [];
+        $this->notResolved[$stageName] = [];
 
         $detected = [
             'database' => false,
@@ -80,9 +89,9 @@ class AccessParser
             'server' => false,
         ];
 
-        $this->accessInfo = collect(explode("\n", $this->input))
+        $this->accessInfo[$stageName] = collect(explode("\n", $accessInput))
             ->chunkWhile(fn ($line) => !empty(trim($line)))
-            ->mapWithKeys(function (Collection $lines, int $chunk) use (&$detected) {
+            ->mapWithKeys(function (Collection $lines, int $chunkIndex) use ($stageName, &$detected) {
                 $lines = $lines->filter(fn ($line) => str($line)->squish()->isNotEmpty())->values();
 
                 $type = str($lines->first())->lower();
@@ -109,8 +118,8 @@ class AccessParser
                     ];
                 }
 
-                $this->notResolved[] = [
-                    'chunk' => $chunk,
+                $this->notResolved[$stageName][] = [
+                    'chunk' => $chunkIndex + 1,
                     'lines' => $lines,
                 ];
 
@@ -120,13 +129,16 @@ class AccessParser
             })
             ->filter()
             ->toArray();
+
+        return $this;
     }
 
     public function makeDeployPrepareYmlFile(): string
     {
         $contents = $this->contentForDeployPrepareConfig();
 
-        $file = 'deploy-prepare.yml';
+        $projectId = $this->retrieveProjectId();
+        $file = "{$projectId}/deploy-prepare.yml";
 
         $filesystem = Storage::disk('local');
 
@@ -135,11 +147,12 @@ class AccessParser
         return $filesystem->path($file);
     }
 
-    public function makeDeployerPhpFile(): string
+    public function makeDeployerPhpFile(?string $stageName = null): string
     {
-        $contents = $this->contentForDeployerScript();
+        $contents = $this->contentForDeployerScript($stageName);
 
-        $file = 'deploy.php';
+        $projectId = $this->retrieveProjectId();
+        $file = "{$projectId}/deploy.php";
 
         $filesystem = Storage::disk('local');
 
@@ -153,24 +166,37 @@ class AccessParser
         return Yaml::dump($this->buildDeployPrepareConfig(), 4, 2);
     }
 
-    public function contentForDeployerScript(): string
+    public function contentForDeployerScript(?string $stageName = null): string
     {
+        $stageConfig = $this->findStageConfig($stageName);
+
+        $renderVariables = !is_null($stageName) && is_array($stageConfig);
+
         return view('deployer', [
-            'applicationName' => data_get($this->configurations, 'gitlab.project.name'),
-            'githubOathToken' => data_get($this->configurations, 'xxxxgithubOathTokenxxxxx'),
-            'CI_REPOSITORY_URL' => data_get($this->configurations, 'stage.options.git_url'),
-            'CI_COMMIT_REF_NAME' => data_get($this->configurations, 'stage.name'),
-            'BIN_PHP' => data_get($this->configurations, 'stage.options.bin_php'),
-            'BIN_COMPOSER' => data_get($this->configurations, 'stage.options.bin_composer'),
-            'DEPLOY_SERVER' => $server = data_get($this->configurations, 'stage.server.host'),
-            'DEPLOY_USER' => $user = data_get($this->configurations, 'stage.server.user'),
-            'DEPLOY_BASE_DIR' => Str::replace(
-                ['{{HOST}}', '{{USER}}'],
-                [$server, $user],
-                data_get($this->configurations, 'stage.options.base_dir_pattern')
-            ),
-            'SSH_PORT' => data_get($this->configurations, 'stage.server.port', 22),
+            'applicationName' => data_get($this->configurations, 'projectInfo.name'),
+            'githubOathToken' => data_get($this->configurations, 'projectInfo.github_token', 'xxxx_githubOathToken_xxxx'),
+            'renderVariables' => $renderVariables,
+            ...($renderVariables ? [
+                'CI_REPOSITORY_URL' => data_get($this->configurations, 'projectInfo.git_url'),
+                'CI_COMMIT_REF_NAME' => $stageName,
+                'BIN_PHP' => data_get($stageConfig, 'options.bin_php'),
+                'BIN_COMPOSER' => data_get($stageConfig, 'options.bin_composer'),
+                'DEPLOY_SERVER' => $server = data_get($stageConfig, 'accessInfo.server.host'),
+                'DEPLOY_USER' => $user = data_get($stageConfig, 'accessInfo.server.login'),
+                'DEPLOY_BASE_DIR' => Str::replace(
+                    ['{{HOST}}', '{{USER}}'],
+                    [$server, $user],
+                    data_get($stageConfig, 'options.base_dir_pattern')
+                ),
+                'SSH_PORT' => data_get($stageConfig, 'accessInfo.server.port', 22),
+            ] : []),
         ])->render();
+    }
+
+    private function findStageConfig(?string $stageName): ?array
+    {
+        return collect(data_get($this->configurations, 'stages'))
+            ->first(fn ($stage) => data_get($stage, 'name') === $stageName);
     }
 
     private function parseServerLines(Collection $lines): array
@@ -216,5 +242,10 @@ class AccessParser
                 ];
             })
             ->toArray();
+    }
+
+    private function retrieveProjectId(): mixed
+    {
+        return data_get($this->configurations, 'projectInfo.project_id');
     }
 }

@@ -2,30 +2,20 @@
 
 namespace App\Filament\Dashboard\Pages\ParseAccess;
 
-use App\Parser\AccessParser;
 use Gitlab;
 use GrahamCampbell\GitLab\GitLabManager;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 
-trait ParserTait
+trait WithGitlab
 {
     public array $projects = [];
-
-    protected function parseAccessInput(?string $accessInput): AccessParser
-    {
-        $parser = new AccessParser();
-        $parser->setAccessInput($accessInput);
-        $parser->parseInputForAccessPayload();
-
-        return $parser;
-    }
 
     protected function loadProjects(): array
     {
         $gitLabManager = app(GitLabManager::class);
 
-        $this->authenticateGitlabManager($gitLabManager, data_get($this, 'data.gitlab.project.token'), data_get($this, 'data.gitlab.project.domain'));
+        $this->authenticateGitlabManager($gitLabManager, data_get($this, 'data.projectInfo.token'), data_get($this, 'data.projectInfo.domain'));
 
         return $this->fetchProjectFromGitlab($gitLabManager, [
             'order_by' => 'created_at',

@@ -2,7 +2,7 @@
 
 namespace App\Filament\Dashboard\Pages;
 
-use App\Filament\Dashboard\Pages\ParseAccess\ParserTait;
+use App\Filament\Dashboard\Pages\ParseAccess\WithGitlab;
 use App\Parser\AccessParser;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
@@ -28,7 +28,7 @@ class ParseAccess extends Page implements HasForms, HasActions
 {
     use InteractsWithActions;
     use InteractsWithForms;
-    use ParserTait;
+    use WithGitlab;
 
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
 
@@ -39,12 +39,7 @@ class ParseAccess extends Page implements HasForms, HasActions
      */
     public array $data = [];
 
-    public array $types = [
-        'json',
-        'yaml',
-        'php',
-    ];
-    public bool $parsed = false;
+    public array $parsed = [];
     public bool $isReadyToDeploy = false;
 
     public function getMaxContentWidth(): MaxWidth|null
@@ -80,9 +75,9 @@ class ParseAccess extends Page implements HasForms, HasActions
     protected function getDefaultFormState(): array
     {
         $sampleInput = <<<'DOC'
-web.example.nwdev.ent
-Domain: https://web.example.nwdev.ent
-Host: web.example.nwdev.ent
+web.example.nwdev.net
+Domain: https://web.example.nwdev.net
+Host: web.example.nwdev.net
 Login: web-example-dev
 Password: XxXxXxXXXXX
 
@@ -97,28 +92,54 @@ Username: example@nwdev.net
 Password: XxXxXxXXXXX
 DOC;
 
-        $this->fill([
-            'parsed' => false,
-        ]);
+        $defaultStageOptions = [
+            'base_dir_pattern' => '/home/{{USER}}/web/{{HOST}}/public_html',
+            'bin_composer' => '/usr/bin/php8.2 /usr/bin/composer',
+            'bin_php' => '/usr/bin/php8.2',
+        ];
 
         return [
             'access_input' => $sampleInput,
-            'gitlab' => [
-                'project' => [
-                    'selected_id' => '',
-                    'name' => '',
-                    'token' => config('services.gitlab.token'),
-                    'project_id' => '',
-                    'domain' => config('services.gitlab.url'),
-                ],
+            'projectInfo' => [
+                'selected_id' => '',
+                'name' => '',
+                'token' => config('services.gitlab.token'),
+                'project_id' => '',
+                'domain' => config('services.gitlab.url'),
+                'git_url' => '',
             ],
             'stage' => [
                 'name' => 'dev',
-                'options' => [
-                    'git_url' => '',
-                    'base_dir_pattern' => '/home/{{USER}}/web/{{HOST}}/public_html',
-                    'bin_composer' => '/usr/bin/php8.2 /usr/bin/composer',
-                    'bin_php' => '/usr/bin/php8.2',
+
+            ],
+            'ci_cd_options' => [
+                'template_version' => '3.0',
+                'enabled_stages' => [
+                    'prepare' => true,
+                    'build' => true,
+                    'deploy' => true,
+                ],
+            ],
+            'stages' => [
+                [
+                    'name' => 'dev',
+                    'access_input' => $sampleInput,
+                    'options' => [
+                        ...$defaultStageOptions,
+                    ],
+                ],
+                [
+                    'name' => 'stage',
+                    'access_input' => str($sampleInput)->replace([
+                        'nwdev.net',
+                        'dev',
+                    ], [
+                        'hdit.info',
+                        'stage',
+                    ])->toString(),
+                    'options' => [
+                        ...$defaultStageOptions,
+                    ],
                 ],
             ],
         ];
@@ -149,14 +170,14 @@ DOC;
                     Forms\Components\Actions\Action::make('prepare repository')
                         ->label('Prepare repository')
                         ->requiresConfirmation()
-//                        ->disabled(fn () => !($this->parsed && $this->isReadyToDeploy))
+//                        ->disabled(fn () => !$this->isReadyToDeploy)
                         ->action('setupRepository'),
                 )
                 ->schema([
                     $this->createGitlabStep(),             // step 1
                     $this->createProjectStep(),            // step 2
-                    $this->createServerDetailsStep(),      // step 3
-                    $this->createCiCdStep(),               // step 4
+                    $this->createCiCdStep(),               // step 3
+                    $this->createServerDetailsStep(),      // step 4
                     $this->createParseAccessStep(),        // step 5
                     $this->createConfirmationStep(),       // step 6
                 ]),
@@ -185,11 +206,11 @@ DOC;
                 }
             })
             ->schema([
-                Forms\Components\TextInput::make('gitlab.project.token')
+                Forms\Components\TextInput::make('projectInfo.token')
                     ->label('API auth token to access to the project')
                     ->helperText(new HtmlString('Read where to get this token <a href="https://github.com/hexidedigital/laravel-gitlab-deploy#gitlab-api-access-token" class="underline" target="_blank">here</a>'))
                     ->required(),
-                Forms\Components\TextInput::make('gitlab.project.domain')
+                Forms\Components\TextInput::make('projectInfo.domain')
                     ->label('Your GitLab domain')
                     ->readOnly()
                     ->required(),
@@ -201,7 +222,7 @@ DOC;
         return Forms\Components\Wizard\Step::make('Project')
             ->icon('heroicon-o-bolt')
             ->afterValidation(function (Forms\Get $get) {
-                $project = $this->findProject($get('gitlab.project.selected_id'));
+                $project = $this->findProject($get('projectInfo.selected_id'));
 
                 $level = data_get($project, 'permissions.project_access.access_level');
 
@@ -213,7 +234,7 @@ DOC;
             })
             ->schema([
                 /* todo - add web url to access (hint or action) */
-                Forms\Components\Select::make('gitlab.project.selected_id')
+                Forms\Components\Select::make('projectInfo.selected_id')
                     ->label('Project')
                     ->placeholder('Select project...')
                     ->required()
@@ -230,7 +251,7 @@ DOC;
                             ->map(fn (array $project) => $project['name']);
                     })
                     ->afterStateUpdated(function (Forms\Get $get) {
-                        $projectID = $get('gitlab.project.selected_id');
+                        $projectID = $get('projectInfo.selected_id');
 
                         $this->selectProject($projectID);
                     }),
@@ -241,7 +262,7 @@ DOC;
                         Forms\Components\Placeholder::make('placeholder.access_level')
                             ->label('Access level')
                             ->content(function (Forms\Get $get) {
-                                $project = $this->findProject($get('gitlab.project.selected_id'));
+                                $project = $this->findProject($get('projectInfo.selected_id'));
 
                                 $level = data_get($project, 'permissions.project_access.access_level');
 
@@ -261,40 +282,23 @@ DOC;
                             ->content(fn (Forms\Get $get) => new HtmlString(
                                 sprintf(
                                     '<a href="%s" class="underline" target="_blank">%s</a>',
-                                    $get('gitlab.project.web_url'),
-                                    $get('gitlab.project.web_url')
+                                    $get('projectInfo.web_url'),
+                                    $get('projectInfo.web_url')
                                 )
                             )),
 
                         Forms\Components\Placeholder::make('placeholder.name')
-                            ->content(fn (Forms\Get $get) => $get('gitlab.project.name')),
+                            ->content(fn (Forms\Get $get) => $get('projectInfo.name')),
 
                         Forms\Components\Placeholder::make('placeholder.project_id')
                             ->label('Project ID')
-                            ->content(fn (Forms\Get $get) => $get('gitlab.project.project_id')),
+                            ->content(fn (Forms\Get $get) => $get('projectInfo.project_id')),
 
                         Forms\Components\Placeholder::make('placeholder.git_url')
                             ->label('Git url')
-                            ->content(fn (Forms\Get $get) => $get('stage.options.git_url')),
+                            ->content(fn (Forms\Get $get) => $get('projectInfo.git_url')),
                     ]),
 
-            ]);
-    }
-
-    protected function createServerDetailsStep(): Forms\Components\Wizard\Step
-    {
-        return Forms\Components\Wizard\Step::make('Server details')
-            ->icon('heroicon-o-server')
-            ->afterValidation(function ($state) {
-                // dd($state);
-            })
-            ->schema([
-                Forms\Components\TextInput::make('stage.options.base_dir_pattern')
-                    ->required(),
-                Forms\Components\TextInput::make('stage.options.bin_composer')
-                    ->required(),
-                Forms\Components\TextInput::make('stage.options.bin_php')
-                    ->required(),
             ]);
     }
 
@@ -303,18 +307,78 @@ DOC;
         return Forms\Components\Wizard\Step::make('CI/CD details')
             ->icon('heroicon-o-server')
             ->schema([
-                Forms\Components\TextInput::make('stage.name')
-                    ->label('Stage name (branch name)')
-                    ->placeholder('dev/stage/master/prod')
-                    ->datalist([
-                        'dev',
-                        'stage',
-                        'master',
-                        'prod',
+                Forms\Components\Select::make('ci_cd_options.template_version')
+                    ->label('CI/CD template version')
+                    ->live()
+                    ->options([
+                        '2.0' => '2.0 - Webpack',
+                        '2.1' => '2.1 - Vite',
+                        '2.2' => '2.2 - Vite + Composer stage',
+                        '3.0' => '3.0 - configurable',
                     ])
+                    ->disableOptionWhen(fn (string $value) => $value !== '3.0')
+                    ->helperText(
+                        new HtmlString('See more details about <a href="https://gitlab.hexide-digital.com/packages/gitlab-templates#template-versions" class="underline" target="_blank">template-versions</a>')
+                    )
                     ->required(),
 
-                /* todo - enabled stages (prepare/vendor, build)*/
+                Forms\Components\Fieldset::make('Enabled CI\CD stages')
+                    ->visible(fn (Forms\Get $get) => $get('ci_cd_options.template_version') === '3.0')
+                    ->columns(3)
+                    ->schema([
+                        Forms\Components\Checkbox::make('ci_cd_options.enabled_stages.prepare')
+                            ->label('Prepare (composer)')
+                            ->helperText('Installs vendor dependencies'),
+                        Forms\Components\Checkbox::make('ci_cd_options.enabled_stages.build')
+                            ->label('Build')
+                            ->helperText('Builds assets'),
+                        Forms\Components\Checkbox::make('ci_cd_options.enabled_stages.deploy')
+                            ->label('Deploy')
+                            ->helperText('Deploys to server')
+                            ->disabled(),
+                    ]),
+
+                Forms\Components\Repeater::make('stages')
+                    ->addActionLabel('Add new stage')
+                    ->minItems(1)
+                    ->grid(3)
+                    ->schema([
+                        Forms\Components\TextInput::make('name')
+                            ->label('Stage name (branch name)')
+                            ->hiddenLabel()
+                            ->distinct()
+                            ->placeholder('dev/stage/master/prod')
+                            ->datalist([
+                                'dev',
+                                'stage',
+                                'master',
+                                'prod',
+                            ])
+                            ->required(),
+                    ]),
+            ]);
+    }
+
+    protected function createServerDetailsStep(): Forms\Components\Wizard\Step
+    {
+        return Forms\Components\Wizard\Step::make('Server details')
+            ->icon('heroicon-o-server')
+            ->schema([
+                Forms\Components\Repeater::make('stages')
+                    ->hiddenLabel()
+                    ->itemLabel(fn (array $state) => "Paths for '" . $state['name'] . "' server")
+                    ->grid(3)
+                    ->addable(false)
+                    ->deletable(false)
+                    ->reorderable(false)
+                    ->schema([
+                        Forms\Components\TextInput::make('options.base_dir_pattern')
+                            ->required(),
+                        Forms\Components\TextInput::make('options.bin_composer')
+                            ->required(),
+                        Forms\Components\TextInput::make('options.bin_php')
+                            ->required(),
+                    ]),
             ]);
     }
 
@@ -323,215 +387,241 @@ DOC;
         return Forms\Components\Wizard\Step::make('Parse access')
             ->icon('heroicon-o-key')
             ->schema([
-                Forms\Components\Grid::make(5)->schema([
-                    Forms\Components\Section::make('Access')
-                        ->columnSpan(2)
-                        ->footerActions([
-                            Forms\Components\Actions\Action::make('parse')
-                                ->label('Parse')
-                                ->icon('heroicon-o-bolt')
-                                ->color(Color::Green)
-                                ->size(ActionSize::Small)
-                                ->action(function (Forms\Get $get, Forms\Set $set) {
-                                    $accessInput = $get('access_input');
-                                    $configurations = $this->form->getRawState();
+                Forms\Components\Repeater::make('stages')
+                    ->hiddenLabel()
+                    ->itemLabel(fn (array $state) => "Manage '" . $state['name'] . "' stage")
+                    ->addable(false)
+                    ->deletable(false)
+                    ->reorderable(false)
+                    ->collapsible()
+                    ->schema(function () {
+                        return [
+                            Forms\Components\Grid::make(5)->schema([
+                                Forms\Components\Section::make('Access')
+                                    ->columnSpan(2)
+                                    ->footerActions([
+                                        function (Forms\Get $get) {
+                                            return Forms\Components\Actions\Action::make('parse-' . $get('name'))
+                                                ->label('Parse \'' . $get('name') . '\' access data')
+                                                ->icon('heroicon-o-bolt')
+                                                ->color(Color::Green)
+                                                ->size(ActionSize::Small)
+                                                ->action(function (Forms\Get $get, Forms\Set $set) {
+                                                    $configurations = $this->form->getRawState();
 
-                                    $parser = $this->tryToParseAccessInput($accessInput);
+                                                    $parser = $this->tryToParseAccessInput($get('name'), $get('access_input'));
+                                                    if (!$parser) {
+                                                        return;
+                                                    }
 
-                                    if (!$parser) {
-                                        return;
-                                    }
+                                                    $parser->setConfigurations($configurations);
 
-                                    $parser->setConfigurations($configurations);
+                                                    $parser->buildDeployPrepareConfig($get('name'));
 
-                                    $parser->buildDeployPrepareConfig();
+                                                    $set('can_be_parsed', true);
+                                                    $this->fill([
+                                                        'parsed.' . $get('name') => true,
+                                                    ]);
 
-                                    $set('accessInfo', $parser->getAccessInfo());
-                                    $set('contents.deploy_php', $parser->contentForDeployerScript());
-                                    $set('contents.deploy_yml', $parser->contentForDeployPrepareConfig());
+                                                    $set('accessInfo', $parser->getAccessInfo($get('name')));
+                                                    $set('contents.deploy_php', $parser->contentForDeployerScript($get('name')));
 
-                                    $notResolved = $parser->getNotResolved();
+                                                    $set('../../contents.deploy_yml', $parser->contentForDeployPrepareConfig());
 
-                                    if (!empty($notResolved)) {
-                                        Notification::make()->title('You have unresolved data')->danger()->send();
+                                                    $notResolved = $parser->getNotResolved($get('name'));
 
-                                        $set('notResolved', $notResolved);
-                                    } else {
-                                        $set('notResolved', null);
-                                    }
+                                                    if (!empty($notResolved)) {
+                                                        Notification::make()->title('You have unresolved data')->danger()->send();
 
-                                    $this->fill([
-                                        'parsed' => true,
-                                    ]);
+                                                        $set('notResolved', $notResolved);
+                                                    } else {
+                                                        $set('notResolved', null);
+                                                    }
 
-                                    Notification::make()->title('Parsed!')->success()->send();
-                                }),
-                        ])
-                        ->footerActionsAlignment(Alignment::End)
-                        ->collapsible()
-                        ->persistCollapsed(false)
-                        ->collapsed(fn () => $this->parsed)
-                        ->schema([
-                            Forms\Components\Textarea::make('access_input')
-                                ->label('Text')
-                                ->hint('paste access data here')
-                                ->autofocus()
-                                ->live(onBlur: true)
-                                ->required()
-                                ->extraInputAttributes([
-                                    'rows' => 15,
-                                ])
-                                ->afterStateUpdated(function (?string $state) {
-                                    $this->fill(['parsed' => false]);
+                                                    Notification::make()->title('Parsed!')->success()->send();
+                                                });
+                                        },
+                                    ])
+                                    ->footerActionsAlignment(Alignment::End)
+                                    ->collapsible()
+                                    ->persistCollapsed(false)
+                                    ->collapsed(fn (Forms\Get $get) => data_get($this, 'parsed.' . $get('name')))
+                                    ->schema([
+                                        Forms\Components\Textarea::make('access_input')
+                                            ->label('Text')
+                                            ->hint('paste access data here')
+                                            ->autofocus()
+                                            ->live(onBlur: true)
+                                            ->required()
+                                            ->extraInputAttributes([
+                                                'rows' => 15,
+                                            ])
+                                            ->afterStateUpdated(function (?string $state, Forms\Get $get, Forms\Set $set) {
+                                                $set('can_be_parsed', false);
+                                                $this->fill([
+                                                    'parsed.' . $get('name') => false,
+                                                ]);
 
-                                    if (!$state) {
-                                        return;
-                                    }
+                                                if (!$state) {
+                                                    return;
+                                                }
 
-                                    $this->tryToParseAccessInput($state);
-                                }),
-                        ]),
-
-                    Forms\Components\Section::make('Problems')
-                        ->icon('heroicon-o-exclamation-circle')
-                        ->iconColor(Color::Red)
-                        ->columnSpan(3)
-                        ->visible(fn (Forms\Get $get) => !is_null($get('notResolved')))
-                        ->schema(function (Forms\Get $get) {
-                            return collect($get('notResolved'))->map(function ($info) {
-                                return Forms\Components\Placeholder::make('not-resolved-chunk.' . $info['chunk'])
-                                    ->label('Section ' . $info['chunk'])
-                                    ->content(str(collect($info['lines'])->map(fn ($line) => "- $line")->implode(PHP_EOL))->markdown()->toHtmlString());
-                            })->all();
-                        }),
-
-                    Forms\Components\Section::make('Parsed result')
-                        ->visible(fn () => $this->parsed)
-                        ->columnSpanFull()
-                        ->columns(3)
-                        ->schema([
-                            Forms\Components\Fieldset::make('Server')
-                                ->columns(1)
-                                ->columnSpan(1)
-                                ->schema([
-                                    Forms\Components\Placeholder::make('accessInfo.server.domain')
-                                        ->label('Domain')
-                                        ->content(fn (Forms\Get $get) => $get('accessInfo.server.domain')),
-                                    Forms\Components\Placeholder::make('accessInfo.server.host')
-                                        ->label('Host')
-                                        ->content(fn (Forms\Get $get) => $get('accessInfo.server.host')),
-                                    Forms\Components\Placeholder::make('accessInfo.server.login')
-                                        ->label('Login')
-                                        ->content(fn (Forms\Get $get) => $get('accessInfo.server.login')),
-                                    Forms\Components\Placeholder::make('accessInfo.server.password')
-                                        ->label('Password')
-                                        ->content(fn (Forms\Get $get) => $get('accessInfo.server.password')),
-                                ]),
-
-                            Forms\Components\Fieldset::make('MySQL')
-                                ->columns(1)
-                                ->columnSpan(1)
-                                ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.database')))
-                                ->schema([
-                                    Forms\Components\Placeholder::make('accessInfo.database.database')
-                                        ->label('Database')
-                                        ->content(fn (Forms\Get $get) => $get('accessInfo.database.database')),
-                                    Forms\Components\Placeholder::make('accessInfo.database.username')
-                                        ->label('Username')
-                                        ->content(fn (Forms\Get $get) => $get('accessInfo.database.username')),
-                                    Forms\Components\Placeholder::make('accessInfo.database.password')
-                                        ->label('Password')
-                                        ->content(fn (Forms\Get $get) => $get('accessInfo.database.password')),
-                                ]),
-
-                            Forms\Components\Fieldset::make('SMTP')
-                                ->columns(1)
-                                ->columnSpan(1)
-                                ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.mail')))
-                                ->schema([
-                                    Forms\Components\Placeholder::make('accessInfo.mail.hostname')
-                                        ->label('Hostname')
-                                        ->content(fn (Forms\Get $get) => $get('accessInfo.mail.hostname')),
-                                    Forms\Components\Placeholder::make('accessInfo.mail.username')
-                                        ->label('Username')
-                                        ->content(fn (Forms\Get $get) => $get('accessInfo.mail.username')),
-                                    Forms\Components\Placeholder::make('accessInfo.mail.password')
-                                        ->label('Password')
-                                        ->content(fn (Forms\Get $get) => $get('accessInfo.mail.password')),
-                                ]),
-                        ]),
-
-                    Forms\Components\Section::make('Generated files')
-                        ->visible(fn () => $this->parsed)
-                        ->columnSpanFull()
-                        ->columns()
-                        ->schema(function () {
-                            $files = [
-                                [
-                                    'state' => 'deploy_php',
-                                    'label' => str('`deploy.php`')->markdown()->toHtmlString(),
-                                    'download' => str('Download `deploy.php`')->markdown()->toHtmlString(),
-                                    'generatePathClosure' => fn (AccessParser $parser) => $parser->makeDeployerPhpFile(),
-                                ],
-                                [
-                                    'state' => 'deploy_yml',
-                                    'label' => str('`deploy-prepare.yml`')->markdown()->toHtmlString(),
-                                    'download' => str('Download `deploy-prepare.yml`')->markdown()->toHtmlString(),
-                                    'generatePathClosure' => fn (AccessParser $parser) => $parser->makeDeployPrepareYmlFile(),
-                                ],
-                            ];
-
-                            $schema = [];
-
-                            foreach ($files as $fileInfo) {
-                                $schema[] = Forms\Components\Grid::make(1)->columnSpan(1)->schema([
-                                    Forms\Components\Textarea::make('contents.' . $fileInfo['state'])
-                                        ->label($fileInfo['label'])
-                                        ->hintAction(
-                                            Forms\Components\Actions\Action::make('copyResult')
-                                                ->icon('heroicon-m-clipboard')
-                                                ->label('Copy content')
-                                                ->visible(fn () => $this->parsed)
-                                                ->action(function ($state) {
-                                                    Notification::make()->title('Copied!')->icon('heroicon-m-clipboard')->send();
-                                                    $this->js(
-                                                        Blade::render(
-                                                            'window.navigator.clipboard.writeText(@js($copyableState))',
-                                                            ['copyableState' => $state]
-                                                        )
-                                                    );
-                                                })
-                                        )
-                                        ->readOnly()
-                                        ->extraInputAttributes([
-                                            'rows' => 20,
-                                        ]),
-
-                                    Forms\Components\Actions::make([
-                                        Forms\Components\Actions\Action::make('download.' . $fileInfo['state'])
-                                            ->color(Color::Indigo)
-                                            ->icon('heroicon-s-arrow-down-tray')
-                                            ->label($fileInfo['download'])
-                                            ->action(function (Forms\Get $get) use ($fileInfo) {
-                                                $accessInput = $get('access_input');
-                                                $configurations = $this->form->getRawState();
-
-                                                $parser = $this->tryToParseAccessInput($accessInput);
-                                                $parser->setConfigurations($configurations);
-
-                                                $parser->buildDeployPrepareConfig();
-
-                                                $path = call_user_func($fileInfo['generatePathClosure'], $parser);
-
-                                                return response()->download($path)->deleteFileAfterSend();
+                                                $this->tryToParseAccessInput($get('name'), $state);
                                             }),
                                     ]),
-                                ]);
-                            }
 
-                            return $schema;
-                        }),
-                ]),
+                                Forms\Components\Section::make('Problems')
+                                    ->icon('heroicon-o-exclamation-circle')
+                                    ->iconColor(Color::Red)
+                                    ->columnSpan(3)
+                                    ->visible(fn (Forms\Get $get) => !is_null($get('notResolved')))
+                                    ->schema(function (Forms\Get $get) {
+                                        return collect($get('notResolved'))->map(function ($info) {
+                                            return Forms\Components\Placeholder::make('not-resolved-chunk.' . $info['chunk'])
+                                                ->label('Section #' . $info['chunk'])
+                                                ->content(str(collect($info['lines'])->map(fn ($line) => "- $line")->implode(PHP_EOL))->markdown()->toHtmlString());
+                                        })->all();
+                                    }),
+
+                                Forms\Components\Section::make('Parsed result')
+                                    ->visible(fn (Forms\Get $get) => data_get($this, 'parsed.' . $get('name')))
+                                    ->columnSpanFull()
+                                    ->collapsible()
+                                    ->columns(3)
+                                    ->schema([
+                                        Forms\Components\Fieldset::make('Server')
+                                            ->columns(1)
+                                            ->columnSpan(1)
+                                            ->schema([
+                                                Forms\Components\Placeholder::make('accessInfo.server.domain')
+                                                    ->label('Domain')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.domain')),
+                                                Forms\Components\Placeholder::make('accessInfo.server.host')
+                                                    ->label('Host')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.host')),
+                                                Forms\Components\Placeholder::make('accessInfo.server.port')
+                                                    ->label('Port')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.port') ?: 22),
+                                                Forms\Components\Placeholder::make('accessInfo.server.login')
+                                                    ->label('Login')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.login')),
+                                                Forms\Components\Placeholder::make('accessInfo.server.password')
+                                                    ->label('Password')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.password')),
+                                            ]),
+
+                                        Forms\Components\Fieldset::make('MySQL')
+                                            ->columns(1)
+                                            ->columnSpan(1)
+                                            ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.database')))
+                                            ->schema([
+                                                Forms\Components\Placeholder::make('accessInfo.database.database')
+                                                    ->label('Database')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.database')),
+                                                Forms\Components\Placeholder::make('accessInfo.database.username')
+                                                    ->label('Username')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.username')),
+                                                Forms\Components\Placeholder::make('accessInfo.database.password')
+                                                    ->label('Password')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.password')),
+                                            ]),
+
+                                        Forms\Components\Fieldset::make('SMTP')
+                                            ->columns(1)
+                                            ->columnSpan(1)
+                                            ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.mail')))
+                                            ->schema([
+                                                Forms\Components\Placeholder::make('accessInfo.mail.hostname')
+                                                    ->label('Hostname')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.hostname')),
+                                                Forms\Components\Placeholder::make('accessInfo.mail.username')
+                                                    ->label('Username')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.username')),
+                                                Forms\Components\Placeholder::make('accessInfo.mail.password')
+                                                    ->label('Password')
+                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.password')),
+                                            ]),
+                                    ]),
+
+                                Forms\Components\Section::make(str('Generated **deploy** file (for current stage)')->markdown()->toHtmlString())
+                                    ->visible(fn (Forms\Get $get) => data_get($this, 'parsed.' . $get('name')))
+                                    ->collapsed()
+                                    ->schema(function (Forms\Get $get) {
+                                        return [
+                                            Forms\Components\Grid::make(1)->columnSpan(1)->schema([
+                                                Forms\Components\Textarea::make('contents.deploy_php')
+                                                    ->label(str('`deploy.php`')->markdown()->toHtmlString())
+                                                    ->hintAction(
+                                                        $this->createCopyAction($get('name'))
+                                                            ->visible(fn () => data_get($this, 'parsed.' . $get('name')))
+                                                    )
+                                                    ->readOnly()
+                                                    ->extraInputAttributes([
+                                                        'rows' => 20,
+                                                    ]),
+
+                                                Forms\Components\Actions::make([
+                                                    Forms\Components\Actions\Action::make('download.deploy_php.' . $get('name'))
+                                                        ->color(Color::Indigo)
+                                                        ->icon('heroicon-s-arrow-down-tray')
+                                                        ->label(str('Download `deploy.php`')->markdown()->toHtmlString())
+                                                        ->action(function (Forms\Get $get) {
+                                                            $configurations = $this->form->getRawState();
+
+                                                            $parser = $this->tryToParseAccessInput($get('name'), $get('access_input'));
+                                                            if (!$parser) {
+                                                                return null;
+                                                            }
+
+                                                            $parser->setConfigurations($configurations);
+
+                                                            $parser->buildDeployPrepareConfig();
+
+                                                            $path = $parser->makeDeployerPhpFile($get('name'));
+
+                                                            return response()->download($path)->deleteFileAfterSend();
+                                                        }),
+                                                ]),
+                                            ]),
+                                        ];
+                                    }),
+                            ]),
+                        ];
+                    }),
+
+                Forms\Components\Section::make('Deploy configuration (for all stages)')
+                    // has at least one parsed stage
+                    ->visible(fn () => collect($this->parsed)->filter()->isNotEmpty())
+                    ->schema([
+                        Forms\Components\Grid::make(1)->columnSpan(1)->schema([
+                            Forms\Components\Textarea::make('contents.deploy_yml')
+                                ->label(str('`deploy-prepare.yml`')->markdown()->toHtmlString())
+                                ->hintAction($this->createCopyAction('deploy_yml'))
+                                ->readOnly()
+                                ->extraInputAttributes([
+                                    'rows' => 20,
+                                ]),
+
+                            Forms\Components\Actions::make([
+                                Forms\Components\Actions\Action::make('download.deploy_yml')
+                                    ->color(Color::Indigo)
+                                    ->icon('heroicon-s-arrow-down-tray')
+                                    ->label(str('Download `deploy-prepare.yml`')->markdown()->toHtmlString())
+                                    ->action(function () {
+                                        $configurations = $this->form->getRawState();
+
+                                        $parser = new AccessParser();
+                                        $parser->setConfigurations($configurations);
+
+                                        $parser->buildDeployPrepareConfig();
+
+                                        $path = $parser->makeDeployPrepareYmlFile();
+
+                                        return response()->download($path)->deleteFileAfterSend();
+                                    }),
+                            ]),
+                        ]),
+                    ]),
             ]);
     }
 
@@ -540,16 +630,21 @@ DOC;
         return Forms\Components\Wizard\Step::make('Confirmation')
             ->icon('heroicon-o-check-badge')
             ->schema([
-                /* todo - check labels, display additional content*/
                 Forms\Components\Section::make('Summary')
                     ->schema([
                         Forms\Components\Placeholder::make('placeholder.name')
                             ->label('Repository')
-                            ->content(fn (Forms\Get $get) => $get('gitlab.project.name')),
+                            ->content(fn (Forms\Get $get) => $get('projectInfo.name')),
 
-                        Forms\Components\Placeholder::make('placeholder.name')
-                            ->label('Stage name (branch)')
-                            ->content(fn (Forms\Get $get) => $get('stage.name')),
+                        // print all stages
+                        Forms\Components\Repeater::make('stages')
+                            ->itemLabel(fn (array $state) => $state['name'])
+                            ->addable(false)
+                            ->deletable(false)
+                            ->reorderable(false)
+                            ->schema([
+                                Forms\Components\TextInput::make('name')->readOnly(),
+                            ]),
                     ]),
             ]);
     }
@@ -563,11 +658,11 @@ DOC;
         }
 
         $this->fill([
-            'data.gitlab.project.selected_id' => $project['id'],
-            'data.gitlab.project.project_id' => $project['id'],
-            'data.gitlab.project.name' => $project['name'],
-            'data.gitlab.project.web_url' => $project['web_url'],
-            'data.stage.options.git_url' => $project['ssh_url_to_repo'],
+            'data.projectInfo.selected_id' => $project['id'],
+            'data.projectInfo.project_id' => $project['id'],
+            'data.projectInfo.name' => $project['name'],
+            'data.projectInfo.web_url' => $project['web_url'],
+            'data.projectInfo.git_url' => $project['ssh_url_to_repo'],
         ]);
 
         $level = data_get($project, 'permissions.project_access.access_level');
@@ -577,14 +672,30 @@ DOC;
         }
     }
 
-    protected function tryToParseAccessInput(string $accessInput): ?AccessParser
+    protected function tryToParseAccessInput(string $stageName, string $accessInput): ?AccessParser
     {
         try {
-            return $this->parseAccessInput($accessInput);
+            return (new AccessParser())->parseInputForAccessPayload($stageName, $accessInput);
         } catch (Throwable $e) {
             Notification::make()->title('Invalid content')->body($e->getMessage())->danger()->send();
 
             return null;
         }
+    }
+
+    protected function createCopyAction(string $name): Forms\Components\Actions\Action
+    {
+        return Forms\Components\Actions\Action::make('copyResult.' . $name)
+            ->icon('heroicon-m-clipboard')
+            ->label('Copy content')
+            ->action(function ($state) {
+                Notification::make()->title('Copied!')->icon('heroicon-m-clipboard')->send();
+                $this->js(
+                    Blade::render(
+                        'window.navigator.clipboard.writeText(@js($copyableState))',
+                        ['copyableState' => $state]
+                    )
+                );
+            });
     }
 }

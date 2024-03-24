@@ -35,6 +35,7 @@ $DEPLOY_SERVER = getenv('DEPLOY_SERVER');
 $DEPLOY_USER = getenv('DEPLOY_USER');
 $SSH_PORT = getenv('SSH_PORT');
 /*CI_ENV*/ // - do not remote this comment. Uses for replacement.
+@if($renderVariables)
 
 /* -------------------------------------------------------------- */
 // todo remove generated values
@@ -48,7 +49,7 @@ $SSH_PORT = getenv('SSH_PORT');
 /**/        $DEPLOY_USER = '{{ $DEPLOY_USER }}';
 /**/        $SSH_PORT = '{{ $SSH_PORT }}';
 /* -------------------------------------------------------------- */
-
+@endif
 
 /* ----------------------------------
  * Configs
