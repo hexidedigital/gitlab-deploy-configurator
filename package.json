@@ -1,4 +1,5 @@
 {
+    "name": "gitlab-deployh-erlper-parser",
     "private": true,
     "type": "module",
     "scripts": {
