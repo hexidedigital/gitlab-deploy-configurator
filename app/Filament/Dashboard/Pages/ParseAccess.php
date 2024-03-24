@@ -17,6 +17,8 @@ use Filament\Support\Enums\ActionSize;
 use Filament\Support\Enums\Alignment;
 use Filament\Support\Enums\MaxWidth;
 use Filament\Support\Exceptions\Halt;
+use Gitlab\Exception\RuntimeException;
+use GuzzleHttp\Utils;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\HtmlString;
 use Throwable;
@@ -40,7 +42,10 @@ class ParseAccess extends Page implements HasForms, HasActions
     public array $data = [];
 
     public array $parsed = [];
+
     public bool $isReadyToDeploy = false;
+    public bool $emptyRepo = false;
+    public bool $isLaravelRepository = false;
 
     public function getMaxContentWidth(): MaxWidth|null
     {
@@ -70,6 +75,8 @@ class ParseAccess extends Page implements HasForms, HasActions
 
         // todo - select laravel 11 playground
         $this->selectProject('689');
+        // todo - select deploy parser (empty project)
+//        $this->selectProject('700');
     }
 
     protected function getDefaultFormState(): array
@@ -158,6 +165,13 @@ DOC;
             return;
         }
 
+        $configurations = $this->form->getRawState();
+
+        $parser = new AccessParser();
+        $parser->setConfigurations($configurations);
+
+        $parser->buildDeployPrepareConfig();
+
         dd($this->form->getState());
     }
 
@@ -224,16 +238,20 @@ DOC;
             ->afterValidation(function (Forms\Get $get) {
                 $project = $this->findProject($get('projectInfo.selected_id'));
 
-                $level = data_get($project, 'permissions.project_access.access_level');
-
+                $level = $this->determineProjectAccessLevel($project);
                 if (!$this->isValidAccessLevel($level)) {
                     Notification::make()->title('You have no access to settings for this project!')->danger()->send();
 
                     throw new Halt();
                 }
+
+                if (!$this->isLaravelRepository) {
+                    Notification::make()->title('This is not a Laravel repository!')->warning()->send();
+
+                    throw new Halt();
+                }
             })
             ->schema([
-                /* todo - add web url to access (hint or action) */
                 Forms\Components\Select::make('projectInfo.selected_id')
                     ->label('Project')
                     ->placeholder('Select project...')
@@ -256,6 +274,28 @@ DOC;
                         $this->selectProject($projectID);
                     }),
 
+                // if $this->emptyRepo show option which template to use
+                Forms\Components\Section::make()
+                    ->visible(fn () => $this->emptyRepo)
+                    ->description('This repository is empty. To continue, select template to use.')
+                    ->schema([
+                        Forms\Components\Select::make('projectInfo.repository_template')
+                            ->label('Template')
+                            ->live()
+                            ->options($this->getRepositoryTemplates())
+                            ->disableOptionWhen(fn ($value) => $value !== 'laravel-11')
+                            ->afterStateUpdated(function ($state, Forms\Set $set) {
+                                if (in_array($state, ['laravel-11', 'hd-based-template'])) {
+                                    $set('projectInfo.frontend_builder', 'vite');
+                                } elseif (in_array($state, ['islm-template', 'hd-based-template'])) {
+                                    $set('projectInfo.frontend_builder', 'webpack');
+                                } else {
+                                    $set('projectInfo.frontend_builder', null);
+                                }
+                            })
+                            ->required(),
+                    ]),
+
                 Forms\Components\Section::make()
                     ->heading('Project Details')
                     ->schema([
@@ -264,19 +304,24 @@ DOC;
                             ->content(function (Forms\Get $get) {
                                 $project = $this->findProject($get('projectInfo.selected_id'));
 
-                                $level = data_get($project, 'permissions.project_access.access_level');
+                                $level = $this->determineProjectAccessLevel($project);
 
-                                return match (intval($level)) {
-                                    0 => 'No access',
-                                    5 => 'Minimal access',
-                                    10 => 'Guest',
-                                    20 => 'Reporter',
-                                    30 => 'Developer',
-                                    40 => 'Maintainer',
-                                    50 => 'Owner',
-                                    default => '(not-detected) . ' . $level,
-                                };
+                                return $this->determineAccessLevelLabel($level);
                             }),
+
+                        Forms\Components\Placeholder::make('placeholder.repository_template_type')
+                            ->label('Detected project template')
+                            ->content(fn (Forms\Get $get) => $get('projectInfo.repository_template')),
+
+                        Forms\Components\Placeholder::make('placeholder.laravel_version')
+                            ->label('Detected laravel')
+                            ->visible(fn (Forms\Get $get) => $get('projectInfo.laravel_version'))
+                            ->content(fn (Forms\Get $get) => $get('projectInfo.laravel_version')),
+
+                        Forms\Components\Placeholder::make('placeholder.frontend_builder')
+                            ->label('Frontend builder')
+                            ->visible(fn (Forms\Get $get) => $get('projectInfo.frontend_builder'))
+                            ->content(fn (Forms\Get $get) => $get('projectInfo.frontend_builder')),
 
                         Forms\Components\Placeholder::make('placeholder.web_url')
                             ->content(fn (Forms\Get $get) => new HtmlString(
@@ -310,13 +355,8 @@ DOC;
                 Forms\Components\Select::make('ci_cd_options.template_version')
                     ->label('CI/CD template version')
                     ->live()
-                    ->options([
-                        '2.0' => '2.0 - Webpack',
-                        '2.1' => '2.1 - Vite',
-                        '2.2' => '2.2 - Vite + Composer stage',
-                        '3.0' => '3.0 - configurable',
-                    ])
-                    ->disableOptionWhen(fn (string $value) => $value !== '3.0')
+                    ->options($this->getCiCdTemplateVersions())
+                    ->disableOptionWhen(fn (string $value) => !$this->isCiCdTemplateVersionAvailable($value))
                     ->helperText(
                         new HtmlString('See more details about <a href="https://gitlab.hexide-digital.com/packages/gitlab-templates#template-versions" class="underline" target="_blank">template-versions</a>')
                     )
@@ -646,11 +686,30 @@ DOC;
                                 Forms\Components\TextInput::make('name')->readOnly(),
                             ]),
                     ]),
+
+                Forms\Components\Checkbox::make('isReadyToDeploy')
+                    ->label('I confirm that I have checked all the data and I am ready to deploy')
+                    ->confirmed()
+                    ->required(),
             ]);
     }
 
     protected function selectProject(string|int|null $projectID): void
     {
+        // reset values
+        $this->reset([
+            'isLaravelRepository',
+            'emptyRepo',
+            'data.projectInfo.laravel_version',
+            'data.projectInfo.repository_template',
+            'data.projectInfo.frontend_builder',
+            'data.projectInfo.selected_id',
+            'data.projectInfo.project_id',
+            'data.projectInfo.name',
+            'data.projectInfo.web_url',
+            'data.projectInfo.git_url',
+        ]);
+
         $project = $this->findProject($projectID);
 
         if (!$project) {
@@ -665,11 +724,97 @@ DOC;
             'data.projectInfo.git_url' => $project['ssh_url_to_repo'],
         ]);
 
-        $level = data_get($project, 'permissions.project_access.access_level');
-
+        $level = $this->determineProjectAccessLevel($project);
         if (!$this->isValidAccessLevel($level)) {
             Notification::make()->title('You have no access to settings for this project!')->danger()->send();
         }
+
+        $isEmptyRepo = data_get($project, 'empty_repo');
+        $this->emptyRepo = $isEmptyRepo;
+
+        if ($isEmptyRepo) {
+            Notification::make()->title('This project is empty!')->warning()->send();
+        }
+
+        $template = $this->detectProjectTemplate($project);
+
+        $this->fill([
+            'data.projectInfo.repository_template' => $template,
+        ]);
+    }
+
+    protected function detectProjectTemplate(array $project): string
+    {
+        $isEmptyRepo = data_get($project, 'empty_repo');
+
+        if ($isEmptyRepo) {
+            $this->isLaravelRepository = true;
+
+            return 'none (empty repo)';
+        }
+
+        $this->makeGitlabManager();
+
+        $template = 'not resolved';
+
+        // fetch project files
+
+        try {
+            $file = $this->gitLabManager->repositoryFiles()->getFile($project['id'], 'composer.json', $project['default_branch']);
+            $composerJson = Utils::jsonDecode(base64_decode($file['content']), true);
+
+            $laravelVersion = data_get($composerJson, 'require.laravel/framework');
+            $usesYajra = data_get($composerJson, 'require.yajra/laravel-datatables-html');
+
+            $this->fill([
+                'data.projectInfo.laravel_version' => $laravelVersion,
+            ]);
+
+            $between = function ($v, $left, $right) {
+                $v = str_replace('^', '', $v);
+
+                return version_compare($v, $left, '>=')
+                    && version_compare($v, $right, '<');
+            };
+
+            if ($usesYajra) {
+                $template = $between($laravelVersion, 9, 10)
+                    ? 'islm-template'
+                    : 'old-template for laravel ' . $laravelVersion;
+            } else {
+                $template = $between($laravelVersion, 10, 11)
+                    ? 'hd-based-template'
+                    : 'laravel-11';
+            }
+
+            $this->isLaravelRepository = true;
+        } catch (RuntimeException $e) {
+            if ($e->getCode() == 404) {
+                $this->isLaravelRepository = false;
+            } else {
+                Notification::make()->title('Failed to detect project template')->danger()->send();
+            }
+        }
+
+        try {
+            $file = $this->gitLabManager->repositoryFiles()->getFile($project['id'], 'package.json', $project['default_branch']);
+            $packageJson = Utils::jsonDecode(base64_decode($file['content']), true);
+
+            // vite or webpack or not resolved
+            $frontendBuilder = data_get($packageJson, 'devDependencies.vite')
+                ? 'vite'
+                : (data_get($packageJson, 'devDependencies.webpack') ? 'webpack' : null);
+
+            $this->fill([
+                'data.projectInfo.frontend_builder' => $frontendBuilder,
+            ]);
+        } catch (RuntimeException $e) {
+            if ($e->getCode() != 404) {
+                Notification::make()->title('Failed to detect project template')->danger()->send();
+            }
+        }
+
+        return $template;
     }
 
     protected function tryToParseAccessInput(string $stageName, string $accessInput): ?AccessParser
@@ -697,5 +842,38 @@ DOC;
                     )
                 );
             });
+    }
+
+    protected function getRepositoryTemplates(): array
+    {
+        return [
+            'laravel-11' => 'Laravel 11',
+            'islm-template' => 'islm based template (laravel 9)',
+            'hd-based-template' => 'HD-based v3 (laravel 8)',
+        ];
+    }
+
+    protected function getCiCdTemplateVersions(): array
+    {
+        return [
+            '2.0' => '2.0 - Webpack',
+            '2.1' => '2.1 - Vite',
+            '2.2' => '2.2 - Vite + Composer stage',
+            '3.0' => '3.0 - configurable',
+        ];
+    }
+
+    protected function isCiCdTemplateVersionAvailable(string $value): bool
+    {
+        return $value === '3.0';
+    }
+
+    protected function determineProjectAccessLevel(?array $project): string|int|null
+    {
+        return data_get(
+            $project,
+            'permissions.group_access.access_level',
+            data_get($project, 'permissions.project_access.access_level')
+        );
     }
 }
