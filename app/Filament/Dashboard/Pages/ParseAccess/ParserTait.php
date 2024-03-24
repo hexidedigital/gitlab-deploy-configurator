@@ -12,11 +12,11 @@ trait ParserTait
 {
     public array $projects = [];
 
-    protected function parseAccessInput(?string $input): AccessParser
+    protected function parseAccessInput(?string $accessInput): AccessParser
     {
         $parser = new AccessParser();
-        $parser->setInput($input);
-        $parser->parse();
+        $parser->setAccessInput($accessInput);
+        $parser->parseInputForAccessPayload();
 
         return $parser;
     }

@@ -3,6 +3,7 @@
 namespace App\Filament\Dashboard\Pages;
 
 use App\Filament\Dashboard\Pages\ParseAccess\ParserTait;
+use App\Parser\AccessParser;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
 use Filament\Forms;
@@ -55,14 +56,8 @@ class ParseAccess extends Page implements HasForms, HasActions
 
     public function mount(): void
     {
-        $this->fill([
-            'parsed' => true,
-            'projects' => [],
-        ]);
-
-        // fill form with sample data
-        $state = $this->getSampleState();
-        $this->form->fill($state);
+        // fill form with default data
+        $this->form->fill($this->getDefaultFormState());
 
         // todo - temporary try to preload projects
         try {
@@ -82,7 +77,7 @@ class ParseAccess extends Page implements HasForms, HasActions
         $this->selectProject('689');
     }
 
-    protected function getSampleState(): array
+    protected function getDefaultFormState(): array
     {
         $sampleInput = <<<'DOC'
 web.example.nwdev.ent
@@ -102,14 +97,12 @@ Username: example@nwdev.net
 Password: XxXxXxXXXXX
 DOC;
 
-        $parser = $this->parseAccessInput($sampleInput);
+        $this->fill([
+            'parsed' => false,
+        ]);
 
         return [
-            'input' => $sampleInput,
-            'result' => [
-                'json' => $parser->makeJson(),
-                'yaml' => $parser->makeYaml(),
-            ],
+            'access_input' => $sampleInput,
             'gitlab' => [
                 'project' => [
                     'selected_id' => '',
@@ -129,31 +122,6 @@ DOC;
                 ],
             ],
         ];
-    }
-
-    /**
-     * Action on Parse access step
-     */
-    public function parse(): void
-    {
-        $state = $this->form->getState();
-
-        $input = $state['input'];
-
-        $parser = $this->parseAccessInput($input);
-
-        $state['result'] = [
-            'json' => $parser->makeJson(),
-            'yaml' => $parser->makeYaml(),
-        ];
-
-        $this->form->fill($state);
-
-        $this->fill([
-            'parsed' => true,
-        ]);
-
-        Notification::make()->title('Parsed!')->success()->send();
     }
 
     /**
@@ -355,20 +323,58 @@ DOC;
         return Forms\Components\Wizard\Step::make('Parse access')
             ->icon('heroicon-o-key')
             ->schema([
-                Forms\Components\Grid::make(4)->schema([
+                Forms\Components\Grid::make(5)->schema([
                     Forms\Components\Section::make('Access')
-                        ->columnSpan(1)
+                        ->columnSpan(2)
                         ->footerActions([
                             Forms\Components\Actions\Action::make('parse')
                                 ->label('Parse')
-                                ->disabled(fn () => $this->parsed)
+                                ->icon('heroicon-o-bolt')
+                                ->color(Color::Green)
                                 ->size(ActionSize::Small)
-                                ->action('parse'),
+                                ->action(function (Forms\Get $get, Forms\Set $set) {
+                                    $accessInput = $get('access_input');
+                                    $configurations = $this->form->getRawState();
+
+                                    $parser = $this->tryToParseAccessInput($accessInput);
+
+                                    if (!$parser) {
+                                        return;
+                                    }
+
+                                    $parser->setConfigurations($configurations);
+
+                                    $parser->buildDeployPrepareConfig();
+
+                                    $set('accessInfo', $parser->getAccessInfo());
+                                    $set('contents.deploy_php', $parser->contentForDeployerScript());
+                                    $set('contents.deploy_yml', $parser->contentForDeployPrepareConfig());
+
+                                    $notResolved = $parser->getNotResolved();
+
+                                    if (!empty($notResolved)) {
+                                        Notification::make()->title('You have unresolved data')->danger()->send();
+
+                                        $set('notResolved', $notResolved);
+                                    } else {
+                                        $set('notResolved', null);
+                                    }
+
+                                    $this->fill([
+                                        'parsed' => true,
+                                    ]);
+
+                                    Notification::make()->title('Parsed!')->success()->send();
+                                }),
                         ])
                         ->footerActionsAlignment(Alignment::End)
+                        ->collapsible()
+                        ->persistCollapsed(false)
+                        ->collapsed(fn () => $this->parsed)
                         ->schema([
-                            Forms\Components\Textarea::make('input')
-                                ->label('Input')
+                            Forms\Components\Textarea::make('access_input')
+                                ->label('Text')
+                                ->hint('paste access data here')
                                 ->autofocus()
                                 ->live(onBlur: true)
                                 ->required()
@@ -376,92 +382,154 @@ DOC;
                                     'rows' => 15,
                                 ])
                                 ->afterStateUpdated(function (?string $state) {
-                                    try {
-                                        $this->fill(['parsed' => false]);
+                                    $this->fill(['parsed' => false]);
 
-                                        if (!$state) {
-                                            return;
-                                        }
-
-                                        $this->parseAccessInput($state);
-
-                                        Notification::make()->title('Content is valid')->info()->send();
-                                    } catch (Throwable $e) {
-                                        Notification::make()->title('Invalid content')->body($e->getMessage())->danger()->send();
+                                    if (!$state) {
+                                        return;
                                     }
+
+                                    $this->tryToParseAccessInput($state);
                                 }),
                         ]),
 
-                    Forms\Components\Section::make('Result')
+                    Forms\Components\Section::make('Problems')
+                        ->icon('heroicon-o-exclamation-circle')
+                        ->iconColor(Color::Red)
                         ->columnSpan(3)
-                        ->schema(function () {
-                            $columns = [];
+                        ->visible(fn (Forms\Get $get) => !is_null($get('notResolved')))
+                        ->schema(function (Forms\Get $get) {
+                            return collect($get('notResolved'))->map(function ($info) {
+                                return Forms\Components\Placeholder::make('not-resolved-chunk.' . $info['chunk'])
+                                    ->label('Section ' . $info['chunk'])
+                                    ->content(str(collect($info['lines'])->map(fn ($line) => "- $line")->implode(PHP_EOL))->markdown()->toHtmlString());
+                            })->all();
+                        }),
 
-                            $types = [
-                                'json',
-                                'yaml',
-                            ];
-
-                            foreach ($types as $type) {
-                                $columns[] = Forms\Components\Textarea::make('result.' . $type)
-                                    ->columnSpan(1)
-                                    ->hiddenLabel()
-                                    ->hintAction(
-                                        Forms\Components\Actions\Action::make('copyResult')
-                                            ->icon('heroicon-m-clipboard')
-                                            ->visible(fn () => $this->parsed)
-                                            ->action(function ($state) {
-                                                Notification::make()->title('Copied!')->icon('heroicon-m-clipboard')->send();
-                                                $this->js(
-                                                    Blade::render(
-                                                        'window.navigator.clipboard.writeText(@js($copyableState))',
-                                                        ['copyableState' => $state]
-                                                    )
-                                                );
-                                            })
-                                    )
-                                    ->readOnly()
-                                    ->extraInputAttributes([
-                                        'rows' => 20,
-                                    ]);
-                            }
-
-                            return [
-                                Forms\Components\Grid::make(1)->schema([
-                                    Forms\Components\ToggleButtons::make('download_type')
-                                        ->label('Which format to download')
-                                        ->inline()
-                                        ->live()
-                                        ->grouped()
-                                        ->colors(array_combine($this->types, ['info', 'info', 'info']))
-                                        ->options(array_combine($this->types, $this->types)),
-
-                                    Forms\Components\Actions::make([
-                                        Forms\Components\Actions\Action::make('Download')
-                                            ->disabled(fn (Forms\Get $get) => !$get('download_type'))
-                                            ->color(Color::Indigo)
-                                            ->label('Download')
-                                            ->action(function (Forms\Get $get) {
-                                                $type = $get('download_type');
-
-                                                if (!$type) {
-                                                    return null;
-                                                }
-
-                                                $input = $get('input');
-
-                                                $parser = $this->parseAccessInput($input);
-
-                                                $file = $parser->storeAsFile($type);
-
-                                                return response()->download($file)->deleteFileAfterSend();
-                                            }),
-                                    ]),
+                    Forms\Components\Section::make('Parsed result')
+                        ->visible(fn () => $this->parsed)
+                        ->columnSpanFull()
+                        ->columns(3)
+                        ->schema([
+                            Forms\Components\Fieldset::make('Server')
+                                ->columns(1)
+                                ->columnSpan(1)
+                                ->schema([
+                                    Forms\Components\Placeholder::make('accessInfo.server.domain')
+                                        ->label('Domain')
+                                        ->content(fn (Forms\Get $get) => $get('accessInfo.server.domain')),
+                                    Forms\Components\Placeholder::make('accessInfo.server.host')
+                                        ->label('Host')
+                                        ->content(fn (Forms\Get $get) => $get('accessInfo.server.host')),
+                                    Forms\Components\Placeholder::make('accessInfo.server.login')
+                                        ->label('Login')
+                                        ->content(fn (Forms\Get $get) => $get('accessInfo.server.login')),
+                                    Forms\Components\Placeholder::make('accessInfo.server.password')
+                                        ->label('Password')
+                                        ->content(fn (Forms\Get $get) => $get('accessInfo.server.password')),
                                 ]),
 
-                                Forms\Components\Grid::make(count($types))
-                                    ->schema($columns),
+                            Forms\Components\Fieldset::make('MySQL')
+                                ->columns(1)
+                                ->columnSpan(1)
+                                ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.database')))
+                                ->schema([
+                                    Forms\Components\Placeholder::make('accessInfo.database.database')
+                                        ->label('Database')
+                                        ->content(fn (Forms\Get $get) => $get('accessInfo.database.database')),
+                                    Forms\Components\Placeholder::make('accessInfo.database.username')
+                                        ->label('Username')
+                                        ->content(fn (Forms\Get $get) => $get('accessInfo.database.username')),
+                                    Forms\Components\Placeholder::make('accessInfo.database.password')
+                                        ->label('Password')
+                                        ->content(fn (Forms\Get $get) => $get('accessInfo.database.password')),
+                                ]),
+
+                            Forms\Components\Fieldset::make('SMTP')
+                                ->columns(1)
+                                ->columnSpan(1)
+                                ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.mail')))
+                                ->schema([
+                                    Forms\Components\Placeholder::make('accessInfo.mail.hostname')
+                                        ->label('Hostname')
+                                        ->content(fn (Forms\Get $get) => $get('accessInfo.mail.hostname')),
+                                    Forms\Components\Placeholder::make('accessInfo.mail.username')
+                                        ->label('Username')
+                                        ->content(fn (Forms\Get $get) => $get('accessInfo.mail.username')),
+                                    Forms\Components\Placeholder::make('accessInfo.mail.password')
+                                        ->label('Password')
+                                        ->content(fn (Forms\Get $get) => $get('accessInfo.mail.password')),
+                                ]),
+                        ]),
+
+                    Forms\Components\Section::make('Generated files')
+                        ->visible(fn () => $this->parsed)
+                        ->columnSpanFull()
+                        ->columns()
+                        ->schema(function () {
+                            $files = [
+                                [
+                                    'state' => 'deploy_php',
+                                    'label' => str('`deploy.php`')->markdown()->toHtmlString(),
+                                    'download' => str('Download `deploy.php`')->markdown()->toHtmlString(),
+                                    'generatePathClosure' => fn (AccessParser $parser) => $parser->makeDeployerPhpFile(),
+                                ],
+                                [
+                                    'state' => 'deploy_yml',
+                                    'label' => str('`deploy-prepare.yml`')->markdown()->toHtmlString(),
+                                    'download' => str('Download `deploy-prepare.yml`')->markdown()->toHtmlString(),
+                                    'generatePathClosure' => fn (AccessParser $parser) => $parser->makeDeployPrepareYmlFile(),
+                                ],
                             ];
+
+                            $schema = [];
+
+                            foreach ($files as $fileInfo) {
+                                $schema[] = Forms\Components\Grid::make(1)->columnSpan(1)->schema([
+                                    Forms\Components\Textarea::make('contents.' . $fileInfo['state'])
+                                        ->label($fileInfo['label'])
+                                        ->hintAction(
+                                            Forms\Components\Actions\Action::make('copyResult')
+                                                ->icon('heroicon-m-clipboard')
+                                                ->label('Copy content')
+                                                ->visible(fn () => $this->parsed)
+                                                ->action(function ($state) {
+                                                    Notification::make()->title('Copied!')->icon('heroicon-m-clipboard')->send();
+                                                    $this->js(
+                                                        Blade::render(
+                                                            'window.navigator.clipboard.writeText(@js($copyableState))',
+                                                            ['copyableState' => $state]
+                                                        )
+                                                    );
+                                                })
+                                        )
+                                        ->readOnly()
+                                        ->extraInputAttributes([
+                                            'rows' => 20,
+                                        ]),
+
+                                    Forms\Components\Actions::make([
+                                        Forms\Components\Actions\Action::make('download.' . $fileInfo['state'])
+                                            ->color(Color::Indigo)
+                                            ->icon('heroicon-s-arrow-down-tray')
+                                            ->label($fileInfo['download'])
+                                            ->action(function (Forms\Get $get) use ($fileInfo) {
+                                                $accessInput = $get('access_input');
+                                                $configurations = $this->form->getRawState();
+
+                                                $parser = $this->tryToParseAccessInput($accessInput);
+                                                $parser->setConfigurations($configurations);
+
+                                                $parser->buildDeployPrepareConfig();
+
+                                                $path = call_user_func($fileInfo['generatePathClosure'], $parser);
+
+                                                return response()->download($path)->deleteFileAfterSend();
+                                            }),
+                                    ]),
+                                ]);
+                            }
+
+                            return $schema;
                         }),
                 ]),
             ]);
@@ -476,21 +544,11 @@ DOC;
                 Forms\Components\Section::make('Summary')
                     ->schema([
                         Forms\Components\Placeholder::make('placeholder.name')
+                            ->label('Repository')
                             ->content(fn (Forms\Get $get) => $get('gitlab.project.name')),
 
-                        Forms\Components\Placeholder::make('placeholder.git_url')
-                            ->content(fn (Forms\Get $get) => $get('stage.options.git_url')),
-
-                        Forms\Components\Placeholder::make('placeholder.base_dir_pattern')
-                            ->content(fn (Forms\Get $get) => $get('stage.options.base_dir_pattern')),
-
-                        Forms\Components\Placeholder::make('placeholder.bin_composer')
-                            ->content(fn (Forms\Get $get) => $get('stage.options.bin_composer')),
-
-                        Forms\Components\Placeholder::make('placeholder.bin_php')
-                            ->content(fn (Forms\Get $get) => $get('stage.options.bin_php')),
-
                         Forms\Components\Placeholder::make('placeholder.name')
+                            ->label('Stage name (branch)')
                             ->content(fn (Forms\Get $get) => $get('stage.name')),
                     ]),
             ]);
@@ -516,6 +574,17 @@ DOC;
 
         if (!$this->isValidAccessLevel($level)) {
             Notification::make()->title('You have no access to settings for this project!')->danger()->send();
+        }
+    }
+
+    protected function tryToParseAccessInput(string $accessInput): ?AccessParser
+    {
+        try {
+            return $this->parseAccessInput($accessInput);
+        } catch (Throwable $e) {
+            Notification::make()->title('Invalid content')->body($e->getMessage())->danger()->send();
+
+            return null;
         }
     }
 }
