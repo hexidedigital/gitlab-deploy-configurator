@@ -39,7 +39,7 @@ trait WithGitlab
     {
         $projects = $this->gitLabManager->projects()->all([
             'page' => 1,
-            /*todo - temporary limit*/
+            /* todo - temporary limit */
             'per_page' => 30,
 //            'per_page' => 5,
             'min_access_level' => 30, // developer
@@ -64,7 +64,7 @@ trait WithGitlab
             ->toArray();
     }
 
-    /*todo - find project in array and when missing - in api*/
+    /* todo - find project in array and when missing - in api */
     protected function findProject(string|int|null $id): ?array
     {
         return data_get($this->projects, $id);

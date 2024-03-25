@@ -43,7 +43,7 @@ class ParseAccess extends Page implements HasForms, HasActions
 
     public array $parsed = [];
 
-    public bool $isReadyToDeploy = false;
+    public bool $isReadyToDeploy = true;
     public bool $emptyRepo = false;
     public bool $isLaravelRepository = false;
 
@@ -82,22 +82,22 @@ class ParseAccess extends Page implements HasForms, HasActions
     protected function getDefaultFormState(): array
     {
         $sampleInput = <<<'DOC'
-web.example.nwdev.net
-Domain: https://web.example.nwdev.net
-Host: web.example.nwdev.net
-Login: web-example-dev
-Password: XxXxXxXXXXX
+            web.example.nwdev.net
+            Domain: https://web.example.nwdev.net
+            Host: web.example.nwdev.net
+            Login: web-example-dev
+            Password: XxXxXxXXXXX
 
-MySQL:
-web-example-dev_db
-web-example-dev_db
-XXxxxxxXXXXXXxx
+            MySQL:
+            web-example-dev_db
+            web-example-dev_db
+            XXxxxxxXXXXXXxx
 
-SMTP:
-Hostname: devs.hexide-digital.com
-Username: example@nwdev.net
-Password: XxXxXxXXXXX
-DOC;
+            SMTP:
+            Hostname: devs.hexide-digital.com
+            Username: example@nwdev.net
+            Password: XxXxXxXXXXX
+            DOC;
 
         $defaultStageOptions = [
             'base_dir_pattern' => '/home/{{USER}}/web/{{HOST}}/public_html',
@@ -114,10 +114,6 @@ DOC;
                 'project_id' => '',
                 'domain' => config('services.gitlab.url'),
                 'git_url' => '',
-            ],
-            'stage' => [
-                'name' => 'dev',
-
             ],
             'ci_cd_options' => [
                 'template_version' => '3.0',
@@ -160,9 +156,7 @@ DOC;
         if (!$this->isReadyToDeploy) {
             Notification::make()->title('Not ready to deploy')->danger()->send();
 
-//            dump($this->form->getState());
-
-//            return;
+            return;
         }
 
         $configurations = $this->form->getRawState();
@@ -263,7 +257,7 @@ DOC;
                     ->live()
                     ->searchable()
                     ->getSearchResultsUsing(function (string $search) {
-                        /*todo - make request to search in gitlab */
+                        /* todo - make request to search in gitlab */
                         return collect($this->projects)
                             ->filter(fn (array $project) => str_contains($project['name'], $search))
                             ->map(fn (array $project) => $project['name']);
@@ -347,7 +341,6 @@ DOC;
                             ->label('Git url')
                             ->content(fn (Forms\Get $get) => $get('projectInfo.git_url')),
                     ]),
-
             ]);
     }
 
@@ -523,7 +516,7 @@ DOC;
                                         return collect($get('notResolved'))->map(function ($info) {
                                             return Forms\Components\Placeholder::make('not-resolved-chunk.' . $info['chunk'])
                                                 ->label('Section #' . $info['chunk'])
-                                                ->content(str(collect($info['lines'])->map(fn ($line) => "- $line")->implode(PHP_EOL))->markdown()->toHtmlString());
+                                                ->content(str(collect($info['lines'])->map(fn ($line) => "- {$line}")->implode(PHP_EOL))->markdown()->toHtmlString());
                                         })->all();
                                     }),
 

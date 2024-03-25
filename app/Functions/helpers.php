@@ -41,7 +41,7 @@ if (!function_exists('normalize_phone')) {
             ->replace(' ', '')
             ->whenStartsWith(
                 '0',
-                fn (\Illuminate\Support\Stringable $phone) => $phone->start('38')
+                fn (Illuminate\Support\Stringable $phone) => $phone->start('38')
             );
 
         return (string)$phone;
