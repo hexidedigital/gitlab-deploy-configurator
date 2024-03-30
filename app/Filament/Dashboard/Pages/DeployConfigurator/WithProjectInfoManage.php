@@ -197,11 +197,11 @@ trait WithProjectInfoManage
 
     private function getScriptToCreateAndPushLaravelRepository(ProjectData $project): ?string
     {
-        return <<<BASH
-laravel new --git --branch=develop --no-interaction {$project->name}
-cd {$project->name}
-git remote add origin {$project->getCloneUrl()}
-git push --set-upstream origin develop
-BASH;
+        return /** @lang Shell Script */ <<<BASH
+            laravel new --git --branch=develop --no-interaction {$project->name}
+            cd {$project->name}
+            git remote add origin {$project->getCloneUrl()}
+            git push --set-upstream origin develop
+            BASH;
     }
 }

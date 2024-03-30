@@ -5,7 +5,6 @@ namespace App\Filament\Dashboard\Pages;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithProjectInfoManage;
 use App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
-use App\GitLab\Data\ProjectData;
 use App\Parser\DeployConfigBuilder;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
@@ -13,12 +12,9 @@ use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
-use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\MaxWidth;
-use Gitlab;
-use GuzzleHttp\Utils;
 
 /**
  * @property Form $form
@@ -60,7 +56,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions
         // todo - select laravel 11 playground
         $this->selectProject('689');
         // todo - select deploy parser (empty project)
-//        $this->selectProject('700');
+        //        $this->selectProject('700');
     }
 
     protected function getDefaultFormState(): array
@@ -256,7 +252,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions
         }
 
         return;
-
         // todo
         $branches
             ->filter(fn (array $branch) => str($branch)->startsWith('test'))
@@ -266,7 +261,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions
 
         $defaultBranch = $project['default_branch'];
         if (!$branches->has($stageName)) {
-//            $newBranch = $this->getGitLabManager()->repositories()->createBranch($project_id, $stageName, $defaultBranch);
+            //            $newBranch = $this->getGitLabManager()->repositories()->createBranch($project_id, $stageName, $defaultBranch);
         }
 
         // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions

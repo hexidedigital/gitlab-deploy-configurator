@@ -34,6 +34,7 @@ class ParseAccessStep extends Forms\Components\Wizard\Step
 
                 if ($isNotParsedAllAccesses) {
                     Notification::make()->title('You have unresolved access data')->danger()->send();
+
                     throw new Halt();
                 }
             })

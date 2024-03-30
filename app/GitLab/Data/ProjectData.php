@@ -61,7 +61,7 @@ final readonly class ProjectData
         return $this->determineProjectAccessLevel();
     }
 
-    protected function determineProjectAccessLevel(): AccessLevel
+    private function determineProjectAccessLevel(): AccessLevel
     {
         return AccessLevel::tryFrom(
             data_get(

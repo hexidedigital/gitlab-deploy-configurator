@@ -49,8 +49,6 @@ class DeployConfigBuilder
             ->map(function (array $stageConfig) {
                 $stageName = data_get($stageConfig, 'name');
 
-
-
                 $this->parseInputForAccessPayload($stageName, data_get($stageConfig, 'access_input'));
 
                 return [

@@ -54,7 +54,7 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                 Forms\Components\Checkbox::make('isReadyToDeploy')
                     ->label('I confirm that I have checked all the data and I am ready to deploy')
                     ->validationMessages([
-                        'accepted' => 'You must confirm that you are ready to deploy.'
+                        'accepted' => 'You must confirm that you are ready to deploy.',
                     ])
                     ->accepted()
                     ->required(),
