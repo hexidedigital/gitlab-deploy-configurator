@@ -155,7 +155,6 @@ trait WithProjectInfoManage
         $this->reset([
             'isLaravelRepository',
             'emptyRepo',
-            'parsed',
             'data.init_repository',
             'data.projectInfo.laravel_version',
             'data.projectInfo.repository_template',
@@ -166,6 +165,8 @@ trait WithProjectInfoManage
             'data.projectInfo.web_url',
             'data.projectInfo.git_url',
         ]);
+
+        $this->resetParsedState();
     }
 
     protected function fillProjectInfoForProject(ProjectData $project): void

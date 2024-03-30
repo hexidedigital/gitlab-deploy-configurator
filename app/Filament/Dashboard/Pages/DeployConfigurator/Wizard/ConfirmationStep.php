@@ -41,7 +41,7 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                                 ->collapsible()
                                 ->schema([
                                     Forms\Components\Grid::make(3)
-                                        ->visible(fn (Forms\Get $get, DeployConfigurator $livewire) => data_get($livewire, 'parsed.' . $get('name')))
+                                        ->visible(fn (Forms\Get $get, DeployConfigurator $livewire) => $livewire->getParseStatusForStage($get('name')))
                                         ->schema([
                                             $livewire->getServerFieldset(),
                                             $livewire->getMySQLFieldset(),

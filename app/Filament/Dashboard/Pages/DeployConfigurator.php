@@ -2,6 +2,10 @@
 
 namespace App\Filament\Dashboard\Pages;
 
+use App\Filament\Contacts\HasParserInfo;
+use App\Filament\Dashboard\Pages\DeployConfigurator\InteractsWithParser;
+use App\Filament\Dashboard\Pages\DeployConfigurator\SampleFormData;
+use App\Filament\Dashboard\Pages\DeployConfigurator\WithAccessFileldset;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithProjectInfoManage;
 use App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
@@ -19,12 +23,14 @@ use Filament\Support\Enums\MaxWidth;
 /**
  * @property Form $form
  */
-class DeployConfigurator extends Page implements HasForms, HasActions
+class DeployConfigurator extends Page implements HasForms, HasActions, HasParserInfo
 {
     use InteractsWithActions;
     use InteractsWithForms;
     use WithGitlab;
     use WithProjectInfoManage;
+    use WithAccessFileldset;
+    use InteractsWithParser;
 
     protected static ?string $navigationIcon = 'heroicon-o-cog';
 
@@ -34,11 +40,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions
      * Form state
      */
     public array $data = [];
-
-    /**
-     * @var array<string, bool>
-     */
-    public array $parsed = [];
 
     public bool $emptyRepo = false;
     public bool $isLaravelRepository = false;
@@ -50,83 +51,17 @@ class DeployConfigurator extends Page implements HasForms, HasActions
 
     public function mount(): void
     {
-        // fill form with default data
-        $this->form->fill($this->getDefaultFormState());
+        $sampleFormData = new SampleFormData();
+        $this->form->fill([
+            'projectInfo' => $sampleFormData->getProjectInfoData(),
+            'ci_cd_options' => $sampleFormData->getCiCdOptions(),
+            'stages' => $sampleFormData->getSampleStages(),
+        ]);
 
         // todo - select laravel 11 playground
         $this->selectProject('689');
         // todo - select deploy parser (empty project)
         //        $this->selectProject('700');
-    }
-
-    protected function getDefaultFormState(): array
-    {
-        $sampleInput = <<<'DOC'
-            web.example.nwdev.net
-            Domain: https://web.example.nwdev.net
-            Host: web.example.nwdev.net
-            Login: web-example-dev
-            Password: XxXxXxXXXXX
-
-            MySQL:
-            web-example-dev_db
-            web-example-dev_db
-            XXxxxxxXXXXXXxx
-
-            SMTP:
-            Hostname: devs.hexide-digital.com
-            Username: example@nwdev.net
-            Password: XxXxXxXXXXX
-            DOC;
-
-        $defaultStageOptions = [
-            'base_dir_pattern' => '/home/{{USER}}/web/{{HOST}}/public_html',
-            'bin_composer' => '/usr/bin/php8.2 /usr/bin/composer',
-            'bin_php' => '/usr/bin/php8.2',
-        ];
-
-        return [
-            'access_input' => $sampleInput,
-            'projectInfo' => [
-                'token' => config('services.gitlab.token'),
-                'domain' => config('services.gitlab.url'),
-
-                'selected_id' => null,
-                'name' => null,
-                'project_id' => null,
-                'git_url' => null,
-            ],
-            'ci_cd_options' => [
-                'template_version' => '3.0',
-                'enabled_stages' => [
-                    'prepare' => true,
-                    'build' => true,
-                    'deploy' => true,
-                ],
-            ],
-            'stages' => [
-                [
-                    'name' => 'dev',
-                    'access_input' => $sampleInput,
-                    'options' => [
-                        ...$defaultStageOptions,
-                    ],
-                ],
-                [
-                    'name' => 'stage',
-                    'access_input' => str($sampleInput)->replace([
-                        'nwdev.net',
-                        'dev',
-                    ], [
-                        'hdit.info',
-                        'stage',
-                    ])->toString(),
-                    'options' => [
-                        ...$defaultStageOptions,
-                    ],
-                ],
-            ],
-        ];
     }
 
     /**
@@ -160,9 +95,11 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                         ->color(Color::Green)
                         ->action('setupRepository'),
                 )
+                ->previousAction(function (Forms\Components\Actions\Action $action) {
+                    $action->icon('heroicon-o-arrow-uturn-left');
+                })
                 ->nextAction(function (Forms\Components\Actions\Action $action) {
-                    $action
-                        ->icon('heroicon-o-chevron-double-right');
+                    $action->icon('heroicon-o-chevron-double-right');
                 })
                 ->schema([
                     Wizard\GitlabStep::make(),              // step 1
@@ -173,68 +110,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                     Wizard\ConfirmationStep::make(),        // step 6
                 ]),
         ])->statePath('data');
-    }
-
-    public function getServerFieldset(): Forms\Components\Fieldset
-    {
-        return Forms\Components\Fieldset::make('Server')
-            ->columns(1)
-            ->columnSpan(1)
-            ->schema([
-                Forms\Components\Placeholder::make('accessInfo.server.domain')
-                    ->label('Domain')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.domain')),
-                Forms\Components\Placeholder::make('accessInfo.server.host')
-                    ->label('Host')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.host')),
-                Forms\Components\Placeholder::make('accessInfo.server.port')
-                    ->label('Port')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.port') ?: 22),
-                Forms\Components\Placeholder::make('accessInfo.server.login')
-                    ->label('Login')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.login')),
-                Forms\Components\Placeholder::make('accessInfo.server.password')
-                    ->label('Password')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.password')),
-            ]);
-    }
-
-    public function getMySQLFieldset(): Forms\Components\Fieldset
-    {
-        return Forms\Components\Fieldset::make('MySQL')
-            ->columns(1)
-            ->columnSpan(1)
-            ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.database')))
-            ->schema([
-                Forms\Components\Placeholder::make('accessInfo.database.database')
-                    ->label('Database')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.database')),
-                Forms\Components\Placeholder::make('accessInfo.database.username')
-                    ->label('Username')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.username')),
-                Forms\Components\Placeholder::make('accessInfo.database.password')
-                    ->label('Password')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.password')),
-            ]);
-    }
-
-    public function getSMTPFieldset(): Forms\Components\Fieldset
-    {
-        return Forms\Components\Fieldset::make('SMTP')
-            ->columns(1)
-            ->columnSpan(1)
-            ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.mail')))
-            ->schema([
-                Forms\Components\Placeholder::make('accessInfo.mail.hostname')
-                    ->label('Hostname')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.hostname')),
-                Forms\Components\Placeholder::make('accessInfo.mail.username')
-                    ->label('Username')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.username')),
-                Forms\Components\Placeholder::make('accessInfo.mail.password')
-                    ->label('Password')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.password')),
-            ]);
     }
 
     protected function createCommitWithConfigFiles(): void
