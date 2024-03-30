@@ -2,125 +2,114 @@
 
 namespace App\Filament\Dashboard\Pages\ParseAccess;
 
+use App\GitLab\Data\ProjectData;
+use App\GitLab\Enums\AccessLevel;
 use Gitlab;
 use GrahamCampbell\GitLab\GitLabManager;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 
 trait WithGitlab
 {
     protected GitLabManager $gitLabManager;
 
-    public array $projects = [];
-
-    protected function makeGitlabManager(): void
+    protected function getGitLabManager(): GitLabManager
     {
-        $this->gitLabManager ??= app(GitLabManager::class);
-
-        $this->authenticateGitlabManager(data_get($this, 'data.projectInfo.token'), data_get($this, 'data.projectInfo.domain'));
+        return tap($this->gitLabManager ??= app(GitLabManager::class), function (GitLabManager $manager) {
+            $this->authenticateGitlabManager(
+                $manager,
+                data_get($this, 'data.projectInfo.token'),
+                data_get($this, 'data.projectInfo.domain')
+            );
+        });
     }
 
-    protected function loadProjects(): array
+    protected function authenticateGitlabManager(GitLabManager $manager, ?string $token, ?string $domain): void
     {
-        $this->makeGitlabManager();
-
-        return $this->fetchProjectFromGitlab([
-            'order_by' => 'created_at',
-        ]);
+        $manager->setUrl($domain);
+        $manager->authenticate($token, Gitlab\Client::AUTH_HTTP_TOKEN);
     }
 
-    protected function authenticateGitlabManager(?string $token, ?string $domain): void
+    /**
+     * @return Collection<int, ProjectData>
+     */
+    protected function loadProjects(): Collection
     {
-        $this->gitLabManager->setUrl($domain);
-        $this->gitLabManager->authenticate($token, Gitlab\Client::AUTH_HTTP_TOKEN);
+        return $this->fetchProjectFromGitLab();
     }
 
-    protected function fetchProjectFromGitlab(array $filters): array
+    /**
+     * @param array<string, int|string> $filters
+     * @return Collection<int, ProjectData>
+     */
+    protected function fetchProjectFromGitLab(array $filters = []): Collection
     {
-        $projects = $this->gitLabManager->projects()->all([
+        $projects = $this->getGitLabManager()->projects()->all([
             'page' => 1,
-            /* todo - temporary limit */
-            'per_page' => 30,
-//            'per_page' => 5,
-            'min_access_level' => 30, // developer
+            'per_page' => 20,
+            'min_access_level' => AccessLevel::Developer->value,
+            'order_by' => 'created_at',
             ...$filters,
         ]);
 
         return (new Collection($projects))
             ->keyBy('id')
             ->mapWithKeys(fn (array $project) => [
-                $project['id'] => Arr::only($project, [
-                    'id',
-                    'name',
-                    'name_with_namespace',
-                    'ssh_url_to_repo',
-                    'default_branch',
-                    'web_url',
-                    'avatar_url',
-                    'empty_repo',
-                    'permissions',
-                ]),
-            ])
-            ->toArray();
+                $project['id'] => ProjectData::makeFrom($project),
+            ]);
     }
 
-    /* todo - find project in array and when missing - in api */
-    protected function findProject(string|int|null $id): ?array
+    protected function findProject(string|int|null $projectId): ?ProjectData
     {
-        return data_get($this->projects, $id);
+        try {
+            if (empty($projectId)) {
+                return null;
+            }
+
+            $projectData = $this->getGitLabManager()->projects()->show($projectId);
+
+            return ProjectData::makeFrom($projectData);
+        } catch (Gitlab\Exception\RuntimeException $exception) {
+            if ($exception->getCode() === 404) {
+                return null;
+            }
+
+            throw $exception;
+        }
     }
 
-    // https://docs.gitlab.com/ee/api/access_requests.html#valid-access-levels
-    protected function isValidAccessLevel($level): bool
-    {
-        return in_array(intval($level), [40, 50]);
-    }
-
-    protected function determineAccessLevelLabel($level): string
-    {
-        return match (intval($level)) {
-            0 => 'No access ' . $level,
-            5 => 'Minimal access',
-            10 => 'Guest',
-            20 => 'Reporter',
-            30 => 'Developer',
-            40 => 'Maintainer',
-            50 => 'Owner',
-            default => '(not-detected) . ' . $level,
-        };
-    }
-
+    /**
+     * todo WIP
+     */
     protected function createCommitWithConfigFiles(): void
     {
-        $this->makeGitlabManager();
-
         $project_id = 689;
         $stageName = 'test/dev/' . now()->format('His');
 
         $project = $this->findProject($project_id);
 
-        $branches = collect($this->gitLabManager->repositories()->branches($project_id))
+        $branches = collect($this->getGitLabManager()->repositories()->branches($project_id))
             ->keyBy('name');
 
         if (empty($branches)) {
             return;
         }
+
         return;
 
         // todo
         $branches
             ->filter(fn (array $branch) => str($branch)->startsWith('test'))
             ->each(function (array $branch) use ($project_id) {
-                $this->gitLabManager->repositories()->deleteBranch($project_id, $branch['name']);
+                $this->getGitLabManager()->repositories()->deleteBranch($project_id, $branch['name']);
             });
 
         $defaultBranch = $project['default_branch'];
         if (!$branches->has($stageName)) {
-//            $newBranch = $this->gitLabManager->repositories()->createBranch($project_id, $stageName, $defaultBranch);
+//            $newBranch = $this->getGitLabManager()->repositories()->createBranch($project_id, $stageName, $defaultBranch);
         }
 
         // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
-        $this->gitLabManager->repositories()->createCommit($project_id, [
+        $this->getGitLabManager()->repositories()->createCommit($project_id, [
             "branch" => $stageName,
             "start_branch" => $defaultBranch,
             "commit_message" => "Configure deployment " . now()->format('H:i:s'),

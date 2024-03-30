@@ -2,7 +2,10 @@
 
 namespace App\Filament\Dashboard\Pages;
 
+use App\Filament\Actions\Forms\Components\CopyAction;
 use App\Filament\Dashboard\Pages\ParseAccess\WithGitlab;
+use App\GitLab\Data\ProjectData;
+use App\GitLab\Enums\AccessLevel;
 use App\Parser\DeployConfigBuilder;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
@@ -58,20 +61,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions
     {
         // fill form with default data
         $this->form->fill($this->getDefaultFormState());
-
-        // todo - temporary try to preload projects
-        try {
-            $projects = $this->loadProjects();
-            $this->fill([
-                'projects' => $projects,
-            ]);
-        } catch (Throwable $throwable) {
-            Notification::make()
-                ->title('Failed to fetch projects')
-                ->body(new HtmlString(sprintf('<p>%s</p><p>%s</p>', $throwable::class, $throwable->getMessage())))
-                ->danger()
-                ->send();
-        }
 
         // todo - select laravel 11 playground
         $this->selectProject('689');
@@ -181,10 +170,14 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                 ->submitAction(
                     Forms\Components\Actions\Action::make('prepare repository')
                         ->label('Prepare repository')
-                        ->requiresConfirmation()
-//                        ->disabled(fn () => !$this->isReadyToDeploy)
+                        ->icon('heroicon-o-rocket-launch')
+                        ->color(Color::Green)
                         ->action('setupRepository'),
                 )
+                ->nextAction(function (Forms\Components\Actions\Action $action) {
+                    $action
+                        ->icon('heroicon-o-chevron-double-right');
+                })
                 ->schema([
                     $this->createGitlabStep(),             // step 1
                     $this->createProjectStep(),            // step 2
@@ -234,18 +227,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions
         return Forms\Components\Wizard\Step::make('Project')
             ->icon('heroicon-o-bolt')
             ->afterValidation(function (Forms\Get $get) {
-                $project = $this->findProject($get('projectInfo.selected_id'));
-
-                $level = $this->determineProjectAccessLevel($project);
-                if (!$this->isValidAccessLevel($level)) {
-                    Notification::make()->title('You have no access to settings for this project!')->danger()->send();
-
-                    throw new Halt();
-                }
-
-                if (!$this->isLaravelRepository) {
-                    Notification::make()->title('This is not a Laravel repository!')->warning()->send();
-
+                $isValid = $this->validateProjectData($get('projectInfo.selected_id'));
+                if (!$isValid) {
                     throw new Halt();
                 }
             })
@@ -257,14 +240,13 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                     ->live()
                     ->searchable()
                     ->getSearchResultsUsing(function (string $search) {
-                        /* todo - make request to search in gitlab */
-                        return collect($this->projects)
-                            ->filter(fn (array $project) => str_contains($project['name'], $search))
-                            ->map(fn (array $project) => $project['name']);
+                        return $this->fetchProjectFromGitLab([
+                            'search' => $search,
+                        ])->map(fn (ProjectData $project) => $project->getNameForSelect());
                     })
                     ->options(function () {
-                        return collect($this->projects)
-                            ->map(fn (array $project) => $project['name']);
+                        return $this->fetchProjectFromGitLab()
+                            ->map(fn (ProjectData $project) => $project->getNameForSelect());
                     })
                     ->afterStateUpdated(function (Forms\Get $get) {
                         $projectID = $get('projectInfo.selected_id');
@@ -273,73 +255,97 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                     }),
 
                 // if $this->emptyRepo show option which template to use
-                Forms\Components\Section::make()
+                Forms\Components\Section::make('empty_repository')
                     ->visible(fn () => $this->emptyRepo)
-                    ->description('This repository is empty. To continue, select template to use.')
+                    ->collapsible()
+                    ->icon('heroicon-o-exclamation-circle')
+                    ->iconColor(Color::Red)
+                    ->heading('Empty repository detected!')
+                    ->description('This repository is empty. To continue, you must manually push the initial commit to the repository.')
                     ->schema([
-                        Forms\Components\Select::make('projectInfo.repository_template')
-                            ->label('Template')
-                            ->live()
-                            ->options($this->getRepositoryTemplates())
-                            ->disableOptionWhen(fn ($value) => $value !== 'laravel-11')
-                            ->afterStateUpdated(function ($state, Forms\Set $set) {
-                                if (in_array($state, ['laravel-11', 'hd-based-template'])) {
-                                    $set('projectInfo.frontend_builder', 'vite');
-                                } elseif (in_array($state, ['islm-template', 'hd-based-template'])) {
-                                    $set('projectInfo.frontend_builder', 'webpack');
-                                } else {
-                                    $set('projectInfo.frontend_builder', null);
-                                }
-                            })
-                            ->required(),
+                        Forms\Components\Textarea::make('init_repository')
+                            ->hiddenLabel()
+                            ->readOnly()
+                            ->extraInputAttributes([
+                                'rows' => 8,
+                                'class' => 'font-mono',
+                            ])
+                            ->hintAction(CopyAction::make('init_repository')),
+                    ])
+                    ->footerActionsAlignment(Alignment::End)
+                    ->footerActions([
+                        // refresh button
+                        Forms\Components\Actions\Action::make('refresh-project')
+                            ->label('Refresh')
+                            ->icon('heroicon-s-arrow-path')
+                            ->color(Color::Indigo)
+                            ->action(function (Forms\Get $get) {
+                                $this->selectProject($get('projectInfo.selected_id'));
+                            }),
                     ]),
 
-                Forms\Components\Section::make()
-                    ->heading('Project Details')
+                Forms\Components\Grid::make()
                     ->schema([
-                        Forms\Components\Placeholder::make('placeholder.access_level')
-                            ->label('Access level')
-                            ->content(function (Forms\Get $get) {
-                                $project = $this->findProject($get('projectInfo.selected_id'));
+                        Forms\Components\Grid::make(1)
+                            ->columnSpan(1)
+                            ->schema([
+                                Forms\Components\Fieldset::make('Repository')
+                                    ->columns()
+                                    ->columnSpan(1)
+                                    ->schema([
+                                        Forms\Components\Placeholder::make('placeholder.name')
+                                            ->content(fn (Forms\Get $get) => $get('projectInfo.name')),
 
-                                $level = $this->determineProjectAccessLevel($project);
+                                        Forms\Components\Placeholder::make('placeholder.project_id')
+                                            ->label('Project ID')
+                                            ->content(fn (Forms\Get $get) => $get('projectInfo.project_id')),
 
-                                return $this->determineAccessLevelLabel($level);
-                            }),
+                                        Forms\Components\Placeholder::make('placeholder.access_level')
+                                            ->label('Access level')
+                                            ->content(function (Forms\Get $get) {
+                                                $project = $this->findProject($get('projectInfo.selected_id'));
 
-                        Forms\Components\Placeholder::make('placeholder.repository_template_type')
-                            ->label('Detected project template')
-                            ->content(fn (Forms\Get $get) => $get('projectInfo.repository_template')),
+                                                if (is_null($project)) {
+                                                    return '-';
+                                                }
 
-                        Forms\Components\Placeholder::make('placeholder.laravel_version')
-                            ->label('Detected laravel')
-                            ->visible(fn (Forms\Get $get) => $get('projectInfo.laravel_version'))
-                            ->content(fn (Forms\Get $get) => $get('projectInfo.laravel_version')),
+                                                return $project->level()->getLabel();
+                                            }),
 
-                        Forms\Components\Placeholder::make('placeholder.frontend_builder')
-                            ->label('Frontend builder')
-                            ->visible(fn (Forms\Get $get) => $get('projectInfo.frontend_builder'))
-                            ->content(fn (Forms\Get $get) => $get('projectInfo.frontend_builder')),
+                                        Forms\Components\Placeholder::make('placeholder.web_url')
+                                            ->columnSpanFull()
+                                            ->content(fn (Forms\Get $get) => new HtmlString(
+                                                sprintf(
+                                                    '<a href="%s" class="underline" target="_blank">%s</a>',
+                                                    $get('projectInfo.web_url'),
+                                                    $get('projectInfo.web_url')
+                                                )
+                                            )),
 
-                        Forms\Components\Placeholder::make('placeholder.web_url')
-                            ->content(fn (Forms\Get $get) => new HtmlString(
-                                sprintf(
-                                    '<a href="%s" class="underline" target="_blank">%s</a>',
-                                    $get('projectInfo.web_url'),
-                                    $get('projectInfo.web_url')
-                                )
-                            )),
+                                        Forms\Components\Placeholder::make('placeholder.git_url')
+                                            ->columnSpanFull()
+                                            ->label('Git url')
+                                            ->content(fn (Forms\Get $get) => $get('projectInfo.git_url')),
+                                    ]),
+                            ]),
+                        Forms\Components\Fieldset::make('Code')
+                            ->columns(1)
+                            ->columnSpan(1)
+                            ->schema([
+                                Forms\Components\Placeholder::make('placeholder.repository_template_type')
+                                    ->label('Detected project template')
+                                    ->content(fn (Forms\Get $get) => $get('projectInfo.repository_template')),
 
-                        Forms\Components\Placeholder::make('placeholder.name')
-                            ->content(fn (Forms\Get $get) => $get('projectInfo.name')),
+                                Forms\Components\Placeholder::make('placeholder.laravel_version')
+                                    ->label('Detected laravel')
+                                    ->visible(fn (Forms\Get $get) => $get('projectInfo.laravel_version'))
+                                    ->content(fn (Forms\Get $get) => $get('projectInfo.laravel_version')),
 
-                        Forms\Components\Placeholder::make('placeholder.project_id')
-                            ->label('Project ID')
-                            ->content(fn (Forms\Get $get) => $get('projectInfo.project_id')),
-
-                        Forms\Components\Placeholder::make('placeholder.git_url')
-                            ->label('Git url')
-                            ->content(fn (Forms\Get $get) => $get('projectInfo.git_url')),
+                                Forms\Components\Placeholder::make('placeholder.frontend_builder')
+                                    ->label('Frontend builder')
+                                    ->visible(fn (Forms\Get $get) => $get('projectInfo.frontend_builder'))
+                                    ->content(fn (Forms\Get $get) => $get('projectInfo.frontend_builder')),
+                            ]),
                     ]),
             ]);
     }
@@ -423,6 +429,17 @@ class DeployConfigurator extends Page implements HasForms, HasActions
     {
         return Forms\Components\Wizard\Step::make('Parse access')
             ->icon('heroicon-o-key')
+            ->afterValidation(function () {
+                $parsed = collect($this->parsed);
+
+                $isNotParsedAllAccesses = $parsed->isEmpty()
+                    || $parsed->reject()->isNotEmpty();
+
+                if ($isNotParsedAllAccesses) {
+                    Notification::make()->title('You have unresolved access data')->danger()->send();
+                    throw new Halt();
+                }
+            })
             ->schema([
                 Forms\Components\Repeater::make('stages')
                     ->hiddenLabel()
@@ -526,58 +543,18 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                                     ->collapsible()
                                     ->columns(3)
                                     ->schema([
-                                        Forms\Components\Fieldset::make('Server')
-                                            ->columns(1)
-                                            ->columnSpan(1)
-                                            ->schema([
-                                                Forms\Components\Placeholder::make('accessInfo.server.domain')
-                                                    ->label('Domain')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.domain')),
-                                                Forms\Components\Placeholder::make('accessInfo.server.host')
-                                                    ->label('Host')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.host')),
-                                                Forms\Components\Placeholder::make('accessInfo.server.port')
-                                                    ->label('Port')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.port') ?: 22),
-                                                Forms\Components\Placeholder::make('accessInfo.server.login')
-                                                    ->label('Login')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.login')),
-                                                Forms\Components\Placeholder::make('accessInfo.server.password')
-                                                    ->label('Password')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.password')),
-                                            ]),
+                                        Forms\Components\Checkbox::make('access_is_correct')
+                                            ->label('I agree that the access data is correct')
+                                            ->accepted()
+                                            ->columnSpanFull()
+                                            ->validationMessages([
+                                                'accepted' => 'Accept this field',
+                                            ])
+                                            ->required(),
 
-                                        Forms\Components\Fieldset::make('MySQL')
-                                            ->columns(1)
-                                            ->columnSpan(1)
-                                            ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.database')))
-                                            ->schema([
-                                                Forms\Components\Placeholder::make('accessInfo.database.database')
-                                                    ->label('Database')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.database')),
-                                                Forms\Components\Placeholder::make('accessInfo.database.username')
-                                                    ->label('Username')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.username')),
-                                                Forms\Components\Placeholder::make('accessInfo.database.password')
-                                                    ->label('Password')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.password')),
-                                            ]),
-
-                                        Forms\Components\Fieldset::make('SMTP')
-                                            ->columns(1)
-                                            ->columnSpan(1)
-                                            ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.mail')))
-                                            ->schema([
-                                                Forms\Components\Placeholder::make('accessInfo.mail.hostname')
-                                                    ->label('Hostname')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.hostname')),
-                                                Forms\Components\Placeholder::make('accessInfo.mail.username')
-                                                    ->label('Username')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.username')),
-                                                Forms\Components\Placeholder::make('accessInfo.mail.password')
-                                                    ->label('Password')
-                                                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.password')),
-                                            ]),
+                                        $this->getServerFieldset(),
+                                        $this->getMySQLFieldset(),
+                                        $this->getSMTPFieldset(),
                                     ]),
 
                                 Forms\Components\Section::make(str('Generated **deploy** file (for current stage)')->markdown()->toHtmlString())
@@ -589,7 +566,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                                                 Forms\Components\Textarea::make('contents.deploy_php')
                                                     ->label(str('`deploy.php`')->markdown()->toHtmlString())
                                                     ->hintAction(
-                                                        $this->createCopyAction($get('name'))
+                                                        CopyAction::make('copyResult.' . $get('name'))
                                                             ->visible(fn () => data_get($this, 'parsed.' . $get('name')))
                                                     )
                                                     ->readOnly()
@@ -627,13 +604,15 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                     }),
 
                 Forms\Components\Section::make('Deploy configuration (for all stages)')
+                    ->description('If you want, you can download the configuration file for all stages at once')
                     // has at least one parsed stage
                     ->visible(fn () => collect($this->parsed)->filter()->isNotEmpty())
+                    ->collapsed()
                     ->schema([
                         Forms\Components\Grid::make(1)->columnSpan(1)->schema([
                             Forms\Components\Textarea::make('contents.deploy_yml')
                                 ->label(str('`deploy-prepare.yml`')->markdown()->toHtmlString())
-                                ->hintAction($this->createCopyAction('deploy_yml'))
+                                ->hintAction(CopyAction::make('deploy_yml'))
                                 ->readOnly()
                                 ->extraInputAttributes([
                                     'rows' => 20,
@@ -666,6 +645,12 @@ class DeployConfigurator extends Page implements HasForms, HasActions
     {
         return Forms\Components\Wizard\Step::make('Confirmation')
             ->icon('heroicon-o-check-badge')
+            ->afterValidation(function (Forms\Get $get) {
+                $isValid = $this->validateProjectData($get('projectInfo.selected_id'));
+                if (!$isValid) {
+                    throw new Halt();
+                }
+            })
             ->schema([
                 Forms\Components\Section::make('Summary')
                     ->schema([
@@ -673,14 +658,20 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                             ->label('Repository')
                             ->content(fn (Forms\Get $get) => $get('projectInfo.name')),
 
-                        // print all stages
                         Forms\Components\Repeater::make('stages')
                             ->itemLabel(fn (array $state) => $state['name'])
                             ->addable(false)
                             ->deletable(false)
                             ->reorderable(false)
+                            ->collapsible()
                             ->schema([
-                                Forms\Components\TextInput::make('name')->readOnly(),
+                                Forms\Components\Grid::make(3)
+                                    ->visible(fn (Forms\Get $get) => data_get($this, 'parsed.' . $get('name')))
+                                    ->schema([
+                                        $this->getServerFieldset(),
+                                        $this->getMySQLFieldset(),
+                                        $this->getSMTPFieldset(),
+                                    ]),
                             ]),
                     ]),
 
@@ -698,6 +689,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions
             'isLaravelRepository',
             'emptyRepo',
             'parsed',
+            'data.init_repository',
             'data.projectInfo.laravel_version',
             'data.projectInfo.repository_template',
             'data.projectInfo.frontend_builder',
@@ -710,28 +702,30 @@ class DeployConfigurator extends Page implements HasForms, HasActions
 
         $project = $this->findProject($projectID);
 
-        if (!$project) {
+        if (is_null($project)) {
             return;
         }
 
         $this->fill([
-            'data.projectInfo.selected_id' => $project['id'],
-            'data.projectInfo.project_id' => $project['id'],
-            'data.projectInfo.name' => $project['name'],
-            'data.projectInfo.web_url' => $project['web_url'],
-            'data.projectInfo.git_url' => $project['ssh_url_to_repo'],
+            'data.projectInfo.selected_id' => $project->id,
+            'data.projectInfo.project_id' => $project->id,
+            'data.projectInfo.name' => $project->name,
+            'data.projectInfo.web_url' => $project->web_url,
+            'data.projectInfo.git_url' => $project->ssh_url_to_repo,
         ]);
 
-        $level = $this->determineProjectAccessLevel($project);
-        if (!$this->isValidAccessLevel($level)) {
+        if (!$project->level()->hasAccessToSettings()) {
             Notification::make()->title('You have no access to settings for this project!')->danger()->send();
         }
 
-        $isEmptyRepo = data_get($project, 'empty_repo');
-        $this->emptyRepo = $isEmptyRepo;
+        $this->emptyRepo = $project->hasEmptyRepository();
 
-        if ($isEmptyRepo) {
+        if ($project->hasEmptyRepository()) {
             Notification::make()->title('This project is empty!')->warning()->send();
+
+            $this->fill([
+                'data.init_repository' => $this->getScriptToCreateAndPushLaravelRepository($project),
+            ]);
         }
 
         $template = $this->detectProjectTemplate($project);
@@ -741,25 +735,21 @@ class DeployConfigurator extends Page implements HasForms, HasActions
         ]);
     }
 
-    protected function detectProjectTemplate(array $project): string
+    protected function detectProjectTemplate(ProjectData $project): string
     {
-        $isEmptyRepo = data_get($project, 'empty_repo');
-
-        if ($isEmptyRepo) {
+        if ($project->hasEmptyRepository()) {
             $this->isLaravelRepository = true;
 
             return 'none (empty repo)';
         }
-
-        $this->makeGitlabManager();
 
         $template = 'not resolved';
 
         // fetch project files
 
         try {
-            $file = $this->gitLabManager->repositoryFiles()->getFile($project['id'], 'composer.json', $project['default_branch']);
-            $composerJson = Utils::jsonDecode(base64_decode($file['content']), true);
+            $fileData = $this->getGitLabManager()->repositoryFiles()->getFile($project->id, 'composer.json', $project->default_branch);
+            $composerJson = Utils::jsonDecode(base64_decode($fileData['content']), true);
 
             $laravelVersion = data_get($composerJson, 'require.laravel/framework');
             $usesYajra = data_get($composerJson, 'require.yajra/laravel-datatables-html');
@@ -795,8 +785,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions
         }
 
         try {
-            $file = $this->gitLabManager->repositoryFiles()->getFile($project['id'], 'package.json', $project['default_branch']);
-            $packageJson = Utils::jsonDecode(base64_decode($file['content']), true);
+            $fileData = $this->getGitLabManager()->repositoryFiles()->getFile($project->id, 'package.json', $project->default_branch);
+            $packageJson = Utils::jsonDecode(base64_decode($fileData['content']), true);
 
             // vite or webpack or not resolved
             $frontendBuilder = data_get($packageJson, 'devDependencies.vite')
@@ -826,6 +816,68 @@ class DeployConfigurator extends Page implements HasForms, HasActions
         }
     }
 
+    protected function getServerFieldset(): Forms\Components\Fieldset
+    {
+        return Forms\Components\Fieldset::make('Server')
+            ->columns(1)
+            ->columnSpan(1)
+            ->schema([
+                Forms\Components\Placeholder::make('accessInfo.server.domain')
+                    ->label('Domain')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.domain')),
+                Forms\Components\Placeholder::make('accessInfo.server.host')
+                    ->label('Host')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.host')),
+                Forms\Components\Placeholder::make('accessInfo.server.port')
+                    ->label('Port')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.port') ?: 22),
+                Forms\Components\Placeholder::make('accessInfo.server.login')
+                    ->label('Login')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.login')),
+                Forms\Components\Placeholder::make('accessInfo.server.password')
+                    ->label('Password')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.password')),
+            ]);
+    }
+
+    protected function getMySQLFieldset(): Forms\Components\Fieldset
+    {
+        return Forms\Components\Fieldset::make('MySQL')
+            ->columns(1)
+            ->columnSpan(1)
+            ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.database')))
+            ->schema([
+                Forms\Components\Placeholder::make('accessInfo.database.database')
+                    ->label('Database')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.database')),
+                Forms\Components\Placeholder::make('accessInfo.database.username')
+                    ->label('Username')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.username')),
+                Forms\Components\Placeholder::make('accessInfo.database.password')
+                    ->label('Password')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.database.password')),
+            ]);
+    }
+
+    protected function getSMTPFieldset(): Forms\Components\Fieldset
+    {
+        return Forms\Components\Fieldset::make('SMTP')
+            ->columns(1)
+            ->columnSpan(1)
+            ->visible(fn (Forms\Get $get) => !is_null($get('accessInfo.mail')))
+            ->schema([
+                Forms\Components\Placeholder::make('accessInfo.mail.hostname')
+                    ->label('Hostname')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.hostname')),
+                Forms\Components\Placeholder::make('accessInfo.mail.username')
+                    ->label('Username')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.username')),
+                Forms\Components\Placeholder::make('accessInfo.mail.password')
+                    ->label('Password')
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.mail.password')),
+            ]);
+    }
+
     protected function createCopyAction(string $name): Forms\Components\Actions\Action
     {
         return Forms\Components\Actions\Action::make('copyResult.' . $name)
@@ -840,6 +892,41 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                     )
                 );
             });
+    }
+
+    protected function validateProjectData($projectId): bool
+    {
+        if (!$projectId) {
+            return false;
+        }
+
+        $project = $this->findProject($projectId);
+
+        if (is_null($project)) {
+            Notification::make()->title('Project not found!')->danger()->send();
+
+            return false;
+        }
+
+        if (!$project->level()->hasAccessToSettings()) {
+            Notification::make()->title('You have no access to settings for this project!')->danger()->send();
+
+            return false;
+        }
+
+        if (!$this->isLaravelRepository) {
+            Notification::make()->title('This is not a Laravel repository!')->warning()->send();
+
+            return false;
+        }
+
+        if ($project->hasEmptyRepository()) {
+            Notification::make()->title('This project is empty!')->warning()->send();
+
+            return false;
+        }
+
+        return true;
     }
 
     protected function getRepositoryTemplates(): array
@@ -866,12 +953,24 @@ class DeployConfigurator extends Page implements HasForms, HasActions
         return $value === '3.0';
     }
 
-    protected function determineProjectAccessLevel(?array $project): string|int|null
+    protected function determineProjectAccessLevel(?array $project): ?AccessLevel
     {
-        return data_get(
-            $project,
-            'permissions.group_access.access_level',
-            data_get($project, 'permissions.project_access.access_level')
+        return AccessLevel::tryFrom(
+            data_get(
+                $project,
+                'permissions.group_access.access_level',
+                data_get($project, 'permissions.project_access.access_level')
+            )
         );
+    }
+
+    private function getScriptToCreateAndPushLaravelRepository(ProjectData $project): ?string
+    {
+        return <<<BASH
+laravel new --git --branch=develop --no-interaction {$project->name}
+cd {$project->name}
+git remote add origin {$project->getCloneUrl()}
+git push --set-upstream origin develop
+BASH;
     }
 }
