@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    <x-filament-panels::form wire:submit="parse">
+    <x-filament-panels::form wire:submit="startConfiguration">
         {{ $this->form }}
     </x-filament-panels::form>
 

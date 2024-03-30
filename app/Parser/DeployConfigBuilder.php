@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\Yaml\Yaml;
 
-class AccessParser
+class DeployConfigBuilder
 {
     private const YML_CONFIG_VERSION = 1.4;
 
@@ -48,6 +48,9 @@ class AccessParser
             })
             ->map(function (array $stageConfig) {
                 $stageName = data_get($stageConfig, 'name');
+
+
+
                 $this->parseInputForAccessPayload($stageName, data_get($stageConfig, 'access_input'));
 
                 return [

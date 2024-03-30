@@ -3,7 +3,7 @@
 namespace App\Filament\Dashboard\Pages;
 
 use App\Filament\Dashboard\Pages\ParseAccess\WithGitlab;
-use App\Parser\AccessParser;
+use App\Parser\DeployConfigBuilder;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
 use Filament\Forms;
@@ -26,15 +26,15 @@ use Throwable;
 /**
  * @property Form $form
  */
-class ParseAccess extends Page implements HasForms, HasActions
+class DeployConfigurator extends Page implements HasForms, HasActions
 {
     use InteractsWithActions;
     use InteractsWithForms;
     use WithGitlab;
 
-    protected static ?string $navigationIcon = 'heroicon-o-document-text';
+    protected static ?string $navigationIcon = 'heroicon-o-cog';
 
-    protected static string $view = 'filament.dashboard.pages.parse-access';
+    protected static string $view = 'filament.pages.base-edit-page';
 
     /**
      * Form state
@@ -161,13 +161,13 @@ class ParseAccess extends Page implements HasForms, HasActions
 
         $configurations = $this->form->getRawState();
 
-        $parser = new AccessParser();
-        $parser->setConfigurations($configurations);
+        $deployConfigBuilder = new DeployConfigBuilder();
+        $deployConfigBuilder->setConfigurations($configurations);
 
         dd([
             $this->form->getState(),
             $this->data,
-            $parser->buildDeployPrepareConfig(),
+            $deployConfigBuilder->buildDeployPrepareConfig(),
         ]);
 
         $this->createCommitWithConfigFiles();
@@ -186,8 +186,8 @@ class ParseAccess extends Page implements HasForms, HasActions
                         ->action('setupRepository'),
                 )
                 ->schema([
-                    $this->createGitlabStep(),             // step 1
                     $this->createProjectStep(),            // step 2
+                    $this->createGitlabStep(),             // step 1
                     $this->createCiCdStep(),               // step 3
                     $this->createServerDetailsStep(),      // step 4
                     $this->createParseAccessStep(),        // step 5
@@ -647,12 +647,12 @@ class ParseAccess extends Page implements HasForms, HasActions
                                     ->action(function () {
                                         $configurations = $this->form->getRawState();
 
-                                        $parser = new AccessParser();
-                                        $parser->setConfigurations($configurations);
+                                        $deployConfigBuilder = new DeployConfigBuilder();
+                                        $deployConfigBuilder->setConfigurations($configurations);
 
-                                        $parser->buildDeployPrepareConfig();
+                                        $deployConfigBuilder->buildDeployPrepareConfig();
 
-                                        $path = $parser->makeDeployPrepareYmlFile();
+                                        $path = $deployConfigBuilder->makeDeployPrepareYmlFile();
 
                                         return response()->download($path)->deleteFileAfterSend();
                                     }),
@@ -815,10 +815,10 @@ class ParseAccess extends Page implements HasForms, HasActions
         return $template;
     }
 
-    protected function tryToParseAccessInput(string $stageName, string $accessInput): ?AccessParser
+    protected function tryToParseAccessInput(string $stageName, string $accessInput): ?DeployConfigBuilder
     {
         try {
-            return (new AccessParser())->parseInputForAccessPayload($stageName, $accessInput);
+            return (new DeployConfigBuilder())->parseInputForAccessPayload($stageName, $accessInput);
         } catch (Throwable $e) {
             Notification::make()->title('Invalid content')->body($e->getMessage())->danger()->send();
 
