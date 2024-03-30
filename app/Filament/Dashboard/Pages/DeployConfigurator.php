@@ -2,8 +2,9 @@
 
 namespace App\Filament\Dashboard\Pages;
 
+use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
+use App\Filament\Dashboard\Pages\DeployConfigurator\WithProjectInfoManage;
 use App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
-use App\Filament\Dashboard\Pages\ParseAccess\WithGitlab;
 use App\GitLab\Data\ProjectData;
 use App\Parser\DeployConfigBuilder;
 use Filament\Actions\Concerns\InteractsWithActions;
@@ -27,6 +28,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions
     use InteractsWithActions;
     use InteractsWithForms;
     use WithGitlab;
+    use WithProjectInfoManage;
 
     protected static ?string $navigationIcon = 'heroicon-o-cog';
 
@@ -177,129 +179,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions
         ])->statePath('data');
     }
 
-    public function selectProject(string|int|null $projectID): void
-    {
-        // reset values
-        $this->reset([
-            'isLaravelRepository',
-            'emptyRepo',
-            'parsed',
-            'data.init_repository',
-            'data.projectInfo.laravel_version',
-            'data.projectInfo.repository_template',
-            'data.projectInfo.frontend_builder',
-            'data.projectInfo.selected_id',
-            'data.projectInfo.project_id',
-            'data.projectInfo.name',
-            'data.projectInfo.web_url',
-            'data.projectInfo.git_url',
-        ]);
-
-        $project = $this->findProject($projectID);
-
-        if (is_null($project)) {
-            return;
-        }
-
-        $this->fill([
-            'data.projectInfo.selected_id' => $project->id,
-            'data.projectInfo.project_id' => $project->id,
-            'data.projectInfo.name' => $project->name,
-            'data.projectInfo.web_url' => $project->web_url,
-            'data.projectInfo.git_url' => $project->ssh_url_to_repo,
-        ]);
-
-        if (!$project->level()->hasAccessToSettings()) {
-            Notification::make()->title('You have no access to settings for this project!')->danger()->send();
-        }
-
-        $this->emptyRepo = $project->hasEmptyRepository();
-
-        if ($project->hasEmptyRepository()) {
-            Notification::make()->title('This project is empty!')->warning()->send();
-
-            $this->fill([
-                'data.init_repository' => $this->getScriptToCreateAndPushLaravelRepository($project),
-            ]);
-        }
-
-        $template = $this->detectProjectTemplate($project);
-
-        $this->fill([
-            'data.projectInfo.repository_template' => $template,
-        ]);
-    }
-
-    protected function detectProjectTemplate(ProjectData $project): string
-    {
-        if ($project->hasEmptyRepository()) {
-            $this->isLaravelRepository = true;
-
-            return 'none (empty repo)';
-        }
-
-        $template = 'not resolved';
-
-        // fetch project files
-
-        try {
-            $fileData = $this->getGitLabManager()->repositoryFiles()->getFile($project->id, 'composer.json', $project->default_branch);
-            $composerJson = Utils::jsonDecode(base64_decode($fileData['content']), true);
-
-            $laravelVersion = data_get($composerJson, 'require.laravel/framework');
-            $usesYajra = data_get($composerJson, 'require.yajra/laravel-datatables-html');
-
-            $this->fill([
-                'data.projectInfo.laravel_version' => $laravelVersion,
-            ]);
-
-            $between = function ($v, $left, $right) {
-                $v = str_replace('^', '', $v);
-
-                return version_compare($v, $left, '>=')
-                    && version_compare($v, $right, '<');
-            };
-
-            if ($usesYajra) {
-                $template = $between($laravelVersion, 9, 10)
-                    ? 'islm-template'
-                    : 'old-template for laravel ' . $laravelVersion;
-            } else {
-                $template = $between($laravelVersion, 10, 11)
-                    ? 'hd-based-template'
-                    : 'laravel-11';
-            }
-
-            $this->isLaravelRepository = true;
-        } catch (Gitlab\Exception\RuntimeException $e) {
-            if ($e->getCode() == 404) {
-                $this->isLaravelRepository = false;
-            } else {
-                Notification::make()->title('Failed to detect project template')->danger()->send();
-            }
-        }
-
-        try {
-            $fileData = $this->getGitLabManager()->repositoryFiles()->getFile($project->id, 'package.json', $project->default_branch);
-            $packageJson = Utils::jsonDecode(base64_decode($fileData['content']), true);
-
-            // vite or webpack or not resolved
-            $frontendBuilder = data_get($packageJson, 'devDependencies.vite')
-                ? 'vite'
-                : (data_get($packageJson, 'devDependencies.webpack') ? 'webpack' : null);
-
-            $this->fill([
-                'data.projectInfo.frontend_builder' => $frontendBuilder,
-            ]);
-        } catch (Gitlab\Exception\RuntimeException $e) {
-            if ($e->getCode() != 404) {
-                Notification::make()->title('Failed to detect project template')->danger()->send();
-            }
-        }
-
-        return $template;
-    }
-
     public function getServerFieldset(): Forms\Components\Fieldset
     {
         return Forms\Components\Fieldset::make('Server')
@@ -362,50 +241,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions
             ]);
     }
 
-    public function validateProjectData($projectId): bool
-    {
-        if (!$projectId) {
-            return false;
-        }
-
-        $project = $this->findProject($projectId);
-
-        if (is_null($project)) {
-            Notification::make()->title('Project not found!')->danger()->send();
-
-            return false;
-        }
-
-        if (!$project->level()->hasAccessToSettings()) {
-            Notification::make()->title('You have no access to settings for this project!')->danger()->send();
-
-            return false;
-        }
-
-        if (!$this->isLaravelRepository) {
-            Notification::make()->title('This is not a Laravel repository!')->warning()->send();
-
-            return false;
-        }
-
-        if ($project->hasEmptyRepository()) {
-            Notification::make()->title('This project is empty!')->warning()->send();
-
-            return false;
-        }
-
-        return true;
-    }
-
-    protected function getRepositoryTemplates(): array
-    {
-        return [
-            'laravel-11' => 'Laravel 11',
-            'islm-template' => 'islm based template (laravel 9)',
-            'hd-based-template' => 'HD-based v3 (laravel 8)',
-        ];
-    }
-
     protected function createCommitWithConfigFiles(): void
     {
         $project_id = 689;
@@ -455,15 +290,5 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                 ],
             ],
         ]);
-    }
-
-    private function getScriptToCreateAndPushLaravelRepository(ProjectData $project): ?string
-    {
-        return <<<BASH
-laravel new --git --branch=develop --no-interaction {$project->name}
-cd {$project->name}
-git remote add origin {$project->getCloneUrl()}
-git push --set-upstream origin develop
-BASH;
     }
 }

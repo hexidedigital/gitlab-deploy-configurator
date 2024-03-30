@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Filament\Dashboard\Pages\ParseAccess;
+namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
 use App\GitLab\Data\ProjectData;
 use App\GitLab\Enums\AccessLevel;
