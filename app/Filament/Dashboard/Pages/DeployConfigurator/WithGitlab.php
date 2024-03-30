@@ -35,13 +35,25 @@ trait WithGitlab
      */
     public function fetchProjectFromGitLab(array $filters = []): Collection
     {
-        $projects = $this->getGitLabManager()->projects()->all([
-            'page' => 1,
-            'per_page' => 20,
-            'min_access_level' => AccessLevel::Developer->value,
-            'order_by' => 'created_at',
-            ...$filters,
-        ]);
+        try {
+            $projects = $this->getGitLabManager()->projects()->all([
+                'page' => 1,
+                'per_page' => 20,
+                'min_access_level' => AccessLevel::Developer->value,
+                'order_by' => 'created_at',
+                ...$filters,
+            ]);
+        } catch (Gitlab\Exception\RuntimeException $exception) {
+            if ($exception->getCode() === 404) {
+                return new Collection();
+            }
+
+            if ($exception->getCode() === 401) {
+                return new Collection();
+            }
+
+            throw $exception;
+        }
 
         return (new Collection($projects))
             ->keyBy('id')
@@ -62,6 +74,10 @@ trait WithGitlab
             return ProjectData::makeFrom($projectData);
         } catch (Gitlab\Exception\RuntimeException $exception) {
             if ($exception->getCode() === 404) {
+                return null;
+            }
+
+            if ($exception->getCode() === 401) {
                 return null;
             }
 

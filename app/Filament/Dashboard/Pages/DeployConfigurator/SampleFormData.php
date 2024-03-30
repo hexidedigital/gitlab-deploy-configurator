@@ -4,15 +4,6 @@ namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
 class SampleFormData
 {
-    public function getDefaultFormState(): array
-    {
-        return [
-            'projectInfo' => $this->getProjectInfoData(),
-            'ci_cd_options' => $this->getCiCdOptions(),
-            'stages' => $this->getSampleStages(),
-        ];
-    }
-
     public function getSampleInput(): string
     {
         return <<<'DOC'
@@ -43,10 +34,10 @@ class SampleFormData
         ];
     }
 
-    public function getProjectInfoData(): array
+    public function getProjectInfoData(?string $gitLabToken = null): array
     {
         return [
-            'token' => config('services.gitlab.token'),
+            'token' => $gitLabToken ?: config('services.gitlab.token'),
             'domain' => config('services.gitlab.url'),
 
             'selected_id' => null,

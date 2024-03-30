@@ -6,8 +6,8 @@ use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Support\Exceptions\Halt;
+use Gitlab\Exception\RuntimeException;
 use Illuminate\Support\HtmlString;
-use Throwable;
 
 class GitlabStep extends Forms\Components\Wizard\Step
 {
@@ -24,16 +24,13 @@ class GitlabStep extends Forms\Components\Wizard\Step
             ->icon('feathericon-gitlab')
             ->afterValidation(function (DeployConfigurator $livewire) {
                 try {
-                    $livewire->fetchProjectFromGitLab([
-                        // try to make a request to check if the token is valid
-                        'per_page' => 1,
-                    ]);
+                    $livewire->getGitLabManager()->users()->me();
 
                     Notification::make()->title('Access granted to GitLab')->success()->send();
-                } catch (Throwable $throwable) {
+                } catch (RuntimeException $exception) {
                     Notification::make()
-                        ->title('Failed to fetch projects')
-                        ->body(new HtmlString(sprintf('<p>%s</p><p>%s</p>', $throwable::class, $throwable->getMessage())))
+                        ->title('Authentication error')
+                        ->body(new HtmlString(sprintf('<p>%s</p><p>%s</p>', $exception::class, $exception->getMessage())))
                         ->danger()
                         ->send();
 
@@ -43,8 +40,11 @@ class GitlabStep extends Forms\Components\Wizard\Step
             ->schema([
                 Forms\Components\TextInput::make('projectInfo.token')
                     ->label('API auth token to access to the project')
+                    ->password()
+                    ->revealable()
                     ->helperText(new HtmlString('Read where to get this token <a href="https://github.com/hexidedigital/laravel-gitlab-deploy#gitlab-api-access-token" class="underline" target="_blank">here</a>'))
                     ->required(),
+
                 Forms\Components\TextInput::make('projectInfo.domain')
                     ->label('Your GitLab domain')
                     ->readOnly()

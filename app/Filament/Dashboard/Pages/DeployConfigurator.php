@@ -9,9 +9,11 @@ use App\Filament\Dashboard\Pages\DeployConfigurator\WithAccessFileldset;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithProjectInfoManage;
 use App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
+use App\Models\User;
 use App\Parser\DeployConfigBuilder;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -51,9 +53,12 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
 
     public function mount(): void
     {
+        /** @var User $user */
+        $user = Filament::auth()->user();
+
         $sampleFormData = new SampleFormData();
         $this->form->fill([
-            'projectInfo' => $sampleFormData->getProjectInfoData(),
+            'projectInfo' => $sampleFormData->getProjectInfoData($user->gitlab_token),
             'ci_cd_options' => $sampleFormData->getCiCdOptions(),
             'stages' => $sampleFormData->getSampleStages(),
         ]);

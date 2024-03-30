@@ -7,6 +7,8 @@ use App\Filament\Dashboard\Pages\DeployConfigurator\InteractsWithParser;
 use App\Filament\Dashboard\Pages\DeployConfigurator\ParseAccessSchema;
 use App\Filament\Dashboard\Pages\DeployConfigurator\SampleFormData;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithAccessFileldset;
+use App\Models\User;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Form;
@@ -32,8 +34,13 @@ class ParseAccess extends Page implements Forms\Contracts\HasForms, HasParserInf
 
     public function mount(): void
     {
+        /** @var User $user */
+        $user = Filament::auth()->user();
+
+        $sampleFormData = new SampleFormData();
         $this->form->fill([
-            'stages' => (new SampleFormData())->getSampleStages(),
+            'projectInfo' => $sampleFormData->getProjectInfoData($user->gitlab_token),
+            'stages' => $sampleFormData->getSampleStages(),
         ]);
     }
 
