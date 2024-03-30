@@ -186,8 +186,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions
                         ->action('setupRepository'),
                 )
                 ->schema([
-                    $this->createProjectStep(),            // step 2
                     $this->createGitlabStep(),             // step 1
+                    $this->createProjectStep(),            // step 2
                     $this->createCiCdStep(),               // step 3
                     $this->createServerDetailsStep(),      // step 4
                     $this->createParseAccessStep(),        // step 5
