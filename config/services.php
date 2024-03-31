@@ -5,6 +5,7 @@ return [
     'gitlab' => [
         'token' => env('GITLAB_TOKEN'),
         'url' => env('GITLAB_URL', 'https://gitlab.com'),
+        'deploy_token' => env('GITLAB_DEPLOY_TOKEN', 'xxxx_githubOathToken_xxxx'),
     ],
 
     /*

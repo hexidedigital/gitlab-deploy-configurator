@@ -2,6 +2,7 @@
 
 namespace App\Parser;
 
+use App\GitLab\Deploy\Data\ProjectDetails;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -11,18 +12,32 @@ class DeployConfigBuilder
 {
     private const YML_CONFIG_VERSION = 1.4;
 
+    private ProjectDetails $projectDetails;
+    private Collection $stagesList;
+
     private array $accessInfo = [];
-    private array $configurations = [];
     private array $notResolved = [];
 
     public function __construct()
     {
-        // ...
+        $this->stagesList = new Collection();
     }
 
-    public function setConfigurations(array $configurations): void
+    public function parseConfiguration(array $configurations): void
     {
-        $this->configurations = $configurations;
+        $this->setStagesList($configurations['stages']);
+
+        $this->setProjectDetails(ProjectDetails::makeFromArray($configurations['projectInfo']));
+    }
+
+    public function setStagesList(array $stagesList): void
+    {
+        $this->stagesList = collect($stagesList);
+    }
+
+    public function setProjectDetails(ProjectDetails $projectDetails): void
+    {
+        $this->projectDetails = $projectDetails;
     }
 
     public function getAccessInfo(?string $stageName = null): ?array
@@ -41,7 +56,7 @@ class DeployConfigBuilder
 
     public function buildDeployPrepareConfig(?string $forceParseStageName = null): array
     {
-        $stages = collect(data_get($this->configurations, 'stages'))
+        $stages = $this->stagesList
             ->filter(function (array $stageConfig) use ($forceParseStageName) {
                 return ($stageConfig['can_be_parsed'] ?? false)
                     || $forceParseStageName === $stageConfig['name'];
@@ -54,7 +69,7 @@ class DeployConfigBuilder
                 return [
                     'name' => $stageName,
                     'options' => [
-                        'git-url' => data_get($this->configurations, 'projectInfo.git_url'),
+                        'git-url' => $this->projectDetails->git_url,
                         'base-dir-pattern' => data_get($stageConfig, 'options.base_dir_pattern'),
                         'bin-composer' => data_get($stageConfig, 'options.bin_composer'),
                         'bin-php' => data_get($stageConfig, 'options.bin_php'),
@@ -71,9 +86,9 @@ class DeployConfigBuilder
             'version' => self::YML_CONFIG_VERSION,
             'git-lab' => [
                 'project' => [
-                    'token' => data_get($this->configurations, 'projectInfo.token'),
+                    'token' => $this->projectDetails->token,
                     'project-id' => $this->retrieveProjectId(),
-                    'domain' => data_get($this->configurations, 'projectInfo.domain'),
+                    'domain' => $this->projectDetails->domain,
                 ],
             ],
             'stages' => $stages,
@@ -148,9 +163,9 @@ class DeployConfigBuilder
         return $filesystem->path($file);
     }
 
-    public function makeDeployerPhpFile(?string $stageName = null): string
+    public function makeDeployerPhpFile(?string $stageName = null, bool $generateWithVariables = false): string
     {
-        $contents = $this->contentForDeployerScript($stageName);
+        $contents = $this->contentForDeployerScript($stageName, $generateWithVariables);
 
         $projectId = $this->retrieveProjectId();
         $file = "{$projectId}/deploy.php";
@@ -167,18 +182,18 @@ class DeployConfigBuilder
         return Yaml::dump($this->buildDeployPrepareConfig($forceParseStageName), 4, 2);
     }
 
-    public function contentForDeployerScript(?string $stageName = null): string
+    public function contentForDeployerScript(?string $stageName = null, bool $generateWithVariables = false): string
     {
         $stageConfig = $this->findStageConfig($stageName);
 
-        $renderVariables = !is_null($stageName) && is_array($stageConfig);
+        $renderVariables = !is_null($stageName) && is_array($stageConfig) && $generateWithVariables;
 
         return view('deployer', [
-            'applicationName' => data_get($this->configurations, 'projectInfo.name'),
-            'githubOathToken' => data_get($this->configurations, 'projectInfo.github_token', 'xxxx_githubOathToken_xxxx'),
+            'applicationName' => $this->projectDetails->name,
+            'githubOathToken' => config('services.gitlab.deploy_token'),
             'renderVariables' => $renderVariables,
             ...($renderVariables ? [
-                'CI_REPOSITORY_URL' => data_get($this->configurations, 'projectInfo.git_url'),
+                'CI_REPOSITORY_URL' => $this->projectDetails->git_url,
                 'CI_COMMIT_REF_NAME' => $stageName,
                 'BIN_PHP' => data_get($stageConfig, 'options.bin_php'),
                 'BIN_COMPOSER' => data_get($stageConfig, 'options.bin_composer'),
@@ -196,7 +211,7 @@ class DeployConfigBuilder
 
     private function findStageConfig(?string $stageName): ?array
     {
-        return collect(data_get($this->configurations, 'stages'))
+        return $this->stagesList
             ->first(fn ($stage) => data_get($stage, 'name') === $stageName);
     }
 
@@ -245,8 +260,8 @@ class DeployConfigBuilder
             ->toArray();
     }
 
-    private function retrieveProjectId(): mixed
+    private function retrieveProjectId(): int
     {
-        return data_get($this->configurations, 'projectInfo.project_id');
+        return $this->projectDetails->project_id;
     }
 }

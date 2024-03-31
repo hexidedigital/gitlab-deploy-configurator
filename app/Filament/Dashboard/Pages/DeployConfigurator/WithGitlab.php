@@ -14,7 +14,11 @@ trait WithGitlab
 
     public function getGitLabManager(): GitLabManager
     {
-        return tap($this->gitLabManager ??= app(GitLabManager::class), function (GitLabManager $manager) {
+        if (isset($this->gitLabManager)) {
+            return $this->gitLabManager;
+        }
+
+        return tap($this->gitLabManager = app(GitLabManager::class), function (GitLabManager $manager) {
             $this->authenticateGitlabManager(
                 $manager,
                 data_get($this, 'data.projectInfo.token'),

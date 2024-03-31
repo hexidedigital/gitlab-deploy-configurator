@@ -9,6 +9,9 @@ use App\Filament\Dashboard\Pages\DeployConfigurator\WithAccessFileldset;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithProjectInfoManage;
 use App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
+use App\GitLab\Deploy\Data\CiCdOptions;
+use App\GitLab\Deploy\Data\ProjectDetails;
+use App\Jobs\ConfigureRepositoryJob;
 use App\Models\User;
 use App\Parser\DeployConfigBuilder;
 use Filament\Actions\Concerns\InteractsWithActions;
@@ -18,9 +21,11 @@ use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\MaxWidth;
+use Mockery\Matcher\Not;
 
 /**
  * @property Form $form
@@ -45,6 +50,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
 
     public bool $emptyRepo = false;
     public bool $isLaravelRepository = false;
+    public bool $jobDispatched = false;
 
     public function getMaxContentWidth(): MaxWidth|string|null
     {
@@ -63,10 +69,11 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
             'stages' => $sampleFormData->getSampleStages(),
         ]);
 
-        // todo - select laravel 11 playground
-        $this->selectProject('689');
-        // todo - select deploy parser (empty project)
-        //        $this->selectProject('700');
+        if ($user->gitlab_id == 89) {
+            // todo - autoselect project
+            $this->selectProject('689'); // select 'laravel 11 playground'
+            // $this->selectProject('705'); // select 'test' (empty project)
+        }
     }
 
     /**
@@ -74,18 +81,41 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
      */
     public function setupRepository(): void
     {
+        if ($this->jobDispatched) {
+            Notification::make()
+                ->warning()
+                ->title('Repository setup already started')
+                ->body('Repository setup has been already started. You will be notified when it is done.')
+                ->send();
+
+            return;
+        }
+
         $configurations = $this->form->getRawState();
 
         $deployConfigBuilder = new DeployConfigBuilder();
-        $deployConfigBuilder->setConfigurations($configurations);
+        $deployConfigBuilder->parseConfiguration($configurations);
 
-        dd([
-            $this->form->getState(),
-            $this->data,
-            $deployConfigBuilder->buildDeployPrepareConfig(),
-        ]);
+        dispatch(
+            new ConfigureRepositoryJob(
+                userId: Filament::auth()->user()->getAuthIdentifier(),
+                projectDetails: ProjectDetails::makeFromArray($this->data['projectInfo']),
+                ciCdOptions: new CiCdOptions(
+                    template_version: $this->data['ci_cd_options']['template_version'],
+                    enabled_stages: $this->data['ci_cd_options']['enabled_stages'],
+                    node_version: $this->data['ci_cd_options']['node_version'],
+                ),
+                deployConfigurations: $deployConfigBuilder->buildDeployPrepareConfig(),
+            )
+        );
 
-        $this->createCommitWithConfigFiles();
+        $this->fill(['jobDispatched' => true]);
+
+        Notification::make()
+            ->success()
+            ->title('Repository setup started')
+            ->body('Repository setup has been started. You will be notified when it is done.')
+            ->send();
     }
 
     public function form(Form $form): Form
@@ -98,6 +128,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                         ->label('Prepare repository')
                         ->icon('heroicon-o-rocket-launch')
                         ->color(Color::Green)
+                        ->disabled(fn () => $this->jobDispatched)
                         ->action('setupRepository'),
                 )
                 ->previousAction(function (Forms\Components\Actions\Action $action) {
@@ -107,63 +138,13 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                     $action->icon('heroicon-o-chevron-double-right');
                 })
                 ->schema([
-                    Wizard\GitlabStep::make(),              // step 1
-                    Wizard\ProjectStep::make(),             // step 2
-                    Wizard\CiCdStep::make(),                // step 3
-                    Wizard\ServerDetailsStep::make(),       // step 4
-                    Wizard\ParseAccessStep::make(),         // step 5
-                    Wizard\ConfirmationStep::make(),        // step 6
+                    Wizard\GitlabStep::make(),
+                    Wizard\ProjectStep::make(),
+                    Wizard\CiCdStep::make(),
+                    Wizard\ServerDetailsStep::make(),
+                    Wizard\ParseAccessStep::make(),
+                    Wizard\ConfirmationStep::make(),
                 ]),
         ])->statePath('data');
-    }
-
-    protected function createCommitWithConfigFiles(): void
-    {
-        $project_id = 689;
-        $stageName = 'test/dev/' . now()->format('His');
-
-        $project = $this->findProject($project_id);
-
-        $branches = collect($this->getGitLabManager()->repositories()->branches($project_id))
-            ->keyBy('name');
-
-        if (empty($branches)) {
-            return;
-        }
-
-        return;
-        // todo
-        $branches
-            ->filter(fn (array $branch) => str($branch)->startsWith('test'))
-            ->each(function (array $branch) use ($project_id) {
-                $this->getGitLabManager()->repositories()->deleteBranch($project_id, $branch['name']);
-            });
-
-        $defaultBranch = $project['default_branch'];
-        if (!$branches->has($stageName)) {
-            //            $newBranch = $this->getGitLabManager()->repositories()->createBranch($project_id, $stageName, $defaultBranch);
-        }
-
-        // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
-        $this->getGitLabManager()->repositories()->createCommit($project_id, [
-            "branch" => $stageName,
-            "start_branch" => $defaultBranch,
-            "commit_message" => "Configure deployment " . now()->format('H:i:s'),
-            "author_name" => "DeployHelper",
-            "author_email" => "deploy-helper@hexide-digital.com",
-            "actions" => [
-                [
-                    "action" => "create",
-                    "file_path" => ".deploy/config-encoded.yml",
-                    "content" => base64_encode("test payload in base64"),
-                    "encoding" => "base64",
-                ],
-                [
-                    "action" => "create",
-                    "file_path" => ".deploy/config-raw.yml",
-                    "content" => "test payload in raw",
-                ],
-            ],
-        ]);
     }
 }

@@ -37,6 +37,7 @@ class DashboardPanelProvider extends PanelProvider
             ->registration(Register::class)
             ->globalSearch(false)
             ->sidebarCollapsibleOnDesktop()
+            ->databaseNotifications()
             ->discoverResources(in: app_path('Filament/Dashboard/Resources'), for: 'App\\Filament\\Dashboard\\Resources')
             ->discoverPages(in: app_path('Filament/Dashboard/Pages'), for: 'App\\Filament\\Dashboard\\Pages')
             ->pages([

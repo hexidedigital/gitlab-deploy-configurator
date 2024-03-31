@@ -29,6 +29,16 @@ class CiCdStep extends Forms\Components\Wizard\Step
                     )
                     ->required(),
 
+                Forms\Components\Select::make('ci_cd_options.node_version')
+                    ->label('Node.js version')
+                    ->options([
+                        '14' => '14',
+                        '16' => '16',
+                        '18' => '18',
+                        '20' => '20',
+                    ])
+                    ->required(),
+
                 Forms\Components\Fieldset::make('Enabled CI\CD stages')
                     ->visible(fn (Forms\Get $get) => $get('ci_cd_options.template_version') === '3.0')
                     ->columns(3)

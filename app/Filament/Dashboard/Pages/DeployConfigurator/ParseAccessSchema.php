@@ -171,7 +171,7 @@ class ParseAccessSchema extends Forms\Components\Grid
                             $configurations = $component->retrieveConfigurations();
 
                             $deployConfigBuilder = new DeployConfigBuilder();
-                            $deployConfigBuilder->setConfigurations($configurations);
+                            $deployConfigBuilder->parseConfiguration($configurations);
 
                             $deployConfigBuilder->buildDeployPrepareConfig();
 
@@ -200,7 +200,7 @@ class ParseAccessSchema extends Forms\Components\Grid
                         return;
                     }
 
-                    $parser->setConfigurations($configurations);
+                    $parser->parseConfiguration($configurations);
 
                     $parser->buildDeployPrepareConfig($stageName);
 
@@ -212,7 +212,7 @@ class ParseAccessSchema extends Forms\Components\Grid
 
                     // get fresh configurations
                     $configurations = $this->retrieveConfigurations();
-                    $parser->setConfigurations($configurations);
+                    $parser->parseConfiguration($configurations);
                     $set('contents.deploy_php', $parser->contentForDeployerScript($stageName));
 
                     $set('../../contents.deploy_yml', $parser->contentForDeployPrepareConfig($stageName));
@@ -266,11 +266,11 @@ class ParseAccessSchema extends Forms\Components\Grid
                                         return null;
                                     }
 
-                                    $parser->setConfigurations($configurations);
+                                    $parser->parseConfiguration($configurations);
 
                                     $parser->buildDeployPrepareConfig();
 
-                                    $path = $parser->makeDeployerPhpFile($get('name'));
+                                    $path = $parser->makeDeployerPhpFile($get('name'), generateWithVariables: true);
 
                                     return response()->download($path)->deleteFileAfterSend();
                                 }),
@@ -311,7 +311,7 @@ class ParseAccessSchema extends Forms\Components\Grid
         return $this->tap(fn () => $this->confirmationCheckboxVisible = $callback);
     }
 
-    protected function tryToParseAccessInput(string $stageName, string $accessInput): ?DeployConfigBuilder
+    protected function tryToParseAccessInput(string $stageName, ?string $accessInput): ?DeployConfigBuilder
     {
         try {
             return (new DeployConfigBuilder())->parseInputForAccessPayload($stageName, $accessInput);

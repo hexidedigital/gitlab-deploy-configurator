@@ -51,6 +51,7 @@ class SampleFormData
     {
         return [
             'template_version' => '3.0',
+            'node_version' => '20',
             'enabled_stages' => [
                 'prepare' => true,
                 'build' => true,

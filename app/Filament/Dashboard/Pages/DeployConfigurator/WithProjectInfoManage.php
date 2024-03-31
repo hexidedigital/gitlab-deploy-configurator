@@ -32,7 +32,7 @@ trait WithProjectInfoManage
         }
 
         if ($project->hasEmptyRepository()) {
-            return tap(false, fn () => $notification->title('This project is empty!')->send());
+            return tap(false, fn () => $notification->title('This project is empty!')->body('You must manually push the initial commit to the repository.')->send());
         }
 
         return true;
