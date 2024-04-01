@@ -11,28 +11,24 @@ use App\Parser\DeployConfigBuilder;
 use Exception;
 use Filament\Notifications\Actions\Action;
 use Filament\Notifications\Notification;
+use Gitlab;
 use GrahamCampbell\GitLab\GitLabManager;
 use HexideDigital\GitlabDeploy\DeployerState;
-use HexideDigital\GitlabDeploy\Exceptions\GitlabDeployException;
 use HexideDigital\GitlabDeploy\Gitlab\Tasks\GitlabVariablesCreator;
 use HexideDigital\GitlabDeploy\Gitlab\Variable;
 use HexideDigital\GitlabDeploy\Helpers\Builders\ConfigurationBuilder;
-use HexideDigital\GitlabDeploy\Helpers\Replacements;
-use HexideDigital\GitlabDeploy\Loggers\ConsoleLogger;
-use HexideDigital\GitlabDeploy\Loggers\FileLogger;
-use HexideDigital\GitlabDeploy\Loggers\LoggerBag;
-use HexideDigital\GitlabDeploy\PipeData;
-use HexideDigital\GitlabDeploy\ProcessExecutors\BasicExecutor;
-use HexideDigital\GitlabDeploy\Tasks;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Container\BindingResolutionException;
-use Illuminate\Contracts\Container\CircularDependencyException;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Encryption\Encrypter;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use RuntimeException;
 use Symfony\Component\Process\Process;
 
 class ConfigureRepositoryJob implements ShouldQueue
@@ -40,10 +36,18 @@ class ConfigureRepositoryJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use WithGitlab;
 
-    protected GitLabManager $gitLabManager;
-    protected ProjectData $projectData;
-    protected string $stageName;
-    private LoggerBag $logger;
+    public int $timeout = 120;
+    public int $tries = 10;
+
+    private ProjectData $gitlabProject;
+
+    private User $user;
+    private array $testingProjects = [
+        689, // moik.o / laravel 11 playground
+    ];
+    private string $deployFolder;
+    private DeployerState $state;
+    private Filesystem|FilesystemAdapter $remoteFilesystem;
 
     public function __construct(
         public int $userId,
@@ -53,246 +57,172 @@ class ConfigureRepositoryJob implements ShouldQueue
     ) {
     }
 
-    /**
-     * @throws CircularDependencyException
-     * @throws BindingResolutionException
-     * @throws GitlabDeployException
-     * @throws Exception
-     */
     public function handle(): void
     {
-        // todo - mock project id
         $projectId = $this->projectDetails->project_id;
-//        $projectId = 689; // select 'laravel 11 playground'
 
-        $this->projectData = $this->findProject($projectId);
+        $this->gitlabProject = $this->findProject($projectId);
+        $this->user = User::findOrFail($this->userId);
 
-        // todo - dev prepare
-//        $this->cleanUpRepository();
+        $this->cleanUpRepository();
 
-        $tasks = [
-//            Tasks\GenerateSshKeysOnLocalhost::class, // done
-            Tasks\CopySshKeysOnRemoteHost::class, // use ssh package
-            Tasks\GenerateSshKeysOnRemoteHost::class, // use ssh package
+        $this->prepareWorkingDirectoryForProjectSetup();
 
-//            Tasks\CreateProjectVariablesOnGitlab::class, // done
-            Tasks\AddGitlabToKnownHostsOnRemoteHost::class, // use ssh package
-//            Tasks\SaveInitialContentOfDeployFile::class, // -
-
-//            Tasks\PutNewVariablesToDeployFile::class, // -
-            Tasks\PrepareAndCopyDotEnvFileForRemote::class, // use ssh package
-
-//            Tasks\RunFirstDeployCommand::class, // -
-//            Tasks\RollbackDeployFileContent::class, // -
-            Tasks\InsertCustomAliasesOnRemoteHost::class, // use ssh package
-
-            Tasks\HelpfulSuggestion::class,
-        ];
-
-
-        $deployFolder = Storage::disk('local')->path('deploy_folder/project_' . $projectId);
-
-        File::ensureDirectoryExists($deployFolder);
-        File::ensureDirectoryExists("$deployFolder/deployer");
-        File::ensureDirectoryExists("$deployFolder/ssh");
-
-        config([
-            'gitlab-deploy.working-dir' => "$deployFolder/deployer",
-            'gitlab-deploy.ssh' => [
-                'key_name' => 'id_rsa',
-                'folder' => "$deployFolder/ssh",
-            ],
-            'tasks' => $tasks,
-        ]);
-
-        // prepare configurations
+        // prepare general configurations
         $deployConfigBuilder = new DeployConfigBuilder();
         $deployConfigBuilder->setStagesList($this->deployConfigurations['stages']);
         $deployConfigBuilder->setProjectDetails($this->projectDetails);
 
-        $state = new DeployerState();
-        $builder = app(ConfigurationBuilder::class);
-        $configurations = $builder->build($this->deployConfigurations);
-        $state->setConfigurations($configurations);
-
-        $this->createLoggers();
+        $this->state = $this->makeDeployState();
 
         foreach ($this->deployConfigurations['stages'] as $stage) {
-            $this->stageName = $stageName = $stage['name'];
+            $stageName = $stage['name'];
 
-            $state->setStage($configurations->stageBag->get($stageName));
+            // prepare configurations for stage
+            $this->selectStage($stageName);
 
-            $state->setupReplacements();
-            $state->setupGitlabVariables();
+            $this->initSftpClient();
 
-            $pipeData = $this->preparePipeData(count($tasks), $state);
+            // task 1 - generate ssh keys on localhost
+            $this->generateSshKeysOnLocalhost();
 
-            // generate ssh keys
-            $identityFilePath = $state->getReplacements()->replace('{{IDENTITY_FILE}}');
+            // task 2 - copy ssh keys on remote host
+            // get content pub key and put to auth_keys on server
+            $this->copySshKeysOnRemoteHost();
 
-            if (!$this->isSshFilesExits($state->getReplacements())) {
-                $command = ['ssh-keygen', '-t', 'rsa', '-N', '""', "-f", $identityFilePath];
+            // task 3 - generate ssh keys on remote host
+            // fetch existing keys, or generate new one locally (specify user and login) or on remove (need execute)
+            $this->generateSshKeysOnRemoteHost();
 
-                $status = (new Process($command, $deployFolder))
-                    ->setTimeout(0)
-                    ->run(function ($type, $output) {
-                        dump($output);
-                    });
-                dump(['ssh-keygen' => $status]);
+            // task 4 - create project variables on gitlab
+            // create and configure gitlab variables
+            $this->createProjectVariables();
 
-                if ($status !== 0) {
-                    throw new Exception('failed');
-                }
-            }
+            // task 5 - add gitlab to known hosts on remote host
+            // append content to known_hosts file
+            $this->addGitlabToKnownHostsOnRemoteHost();
 
-            $newVariables = [
-                new Variable(
-                    key: 'SSH_PRIVATE_KEY',
-                    scope: $state->getStage()->name,
-                    value: File::get($identityFilePath) ?: '',
-                ),
-                /*todo - mock*/
-                new Variable(
-                    key: 'SSH_PUB_KEY',
-                    scope: $state->getStage()->name,
-                    value: File::get("{$identityFilePath}.pub"),
-                ),
-            ];
+            // task 6 - prepare and copy dot env file for remote
+            // copy file to remote (create folder)
+            $this->prepareAndCopyDotEnvFileForRemote();
 
-            if ($this->ciCdOptions->withDisableStages()) {
-                if ($this->ciCdOptions->isStagesDisabled('prepare')) {
-                    $newVariables[] = new Variable(
-                        key: 'CI_COMPOSER_STAGE',
-                        scope: '*',
-                        value: 0,
-                    );
-                }
-                if ($this->ciCdOptions->isStagesDisabled('build')) {
-                    $newVariables[] = new Variable(
-                        key: 'CI_BUILD_STAGE',
-                        scope: '*',
-                        value: 0,
-                    );
-                }
-            }
-
-            // ... remote commands with ssh ...
-
-            foreach ($newVariables as $variable) {
-                $state->getGitlabVariablesBag()->add($variable);
-            }
-
-            // create variables for stage
-            $gitlabVariablesCreator = new GitlabVariablesCreator($this->getGitLabManager());
-            $gitlabVariablesCreator
-                ->setProject($state->getConfigurations()->project)
-                ->setVariableBag($state->getGitlabVariablesBag());
-
-            $gitlabVariablesCreator->execute();
-
-            if ($fails = $gitlabVariablesCreator->getFailMassages()) {
-                dump($fails);
-            }
-
-            // push and create files in repository
+            // task 7 - push branch and trigger pipeline (run first deploy command)
+            // create deploy branch with new files in repository
             $this->createCommitWithConfigFiles($stageName, $deployConfigBuilder);
+
+            // task 8 - insert custom aliases on remote host
+            // create or append file content
+            $this->insertCustomAliasesOnRemoteHost();
+
+            // task 9 - helpful suggestion
+            // todo - show helpful suggestion after job dispatching on page
 
             // todo - process only one stage
             break;
         }
 
-        // done notification
         $this->sendSuccessNotification();
 
         /*todo - mock*/
-//        $this->release(20);
+        $this->release(20);
     }
 
     public function failed(Exception $exception): void
     {
-        $this->fail($exception);
+//        $this->fail($exception);
         /*todo - mock*/
-//        $this->release(20);
+        $this->release(20);
     }
 
-    public function tries(): int
-    {
-        return 120;
-    }
 
-    public function sendSuccessNotification(): void
+    private function sendSuccessNotification(): void
     {
-        dump("Repository '{$this->projectData->name}' configured successfully");
-
-//        return;
+        dump("Repository '{$this->gitlabProject->name}' configured successfully");
 
         Notification::make()
             ->success()
             ->icon('heroicon-o-rocket-launch')
-            ->title("Repository '{$this->projectData->name}' configured successfully")
+            ->title("Repository '{$this->gitlabProject->name}' configured successfully")
             ->actions([
                 Action::make('view')
                     ->label('View in GitLab')
                     ->icon('feathericon-gitlab')
                     ->button()
-                    ->url("https://gitlab.hexide-digital.com/{$this->projectData->path_with_namespace}/-/pipelines", shouldOpenInNewTab: true),
+                    ->url("https://gitlab.hexide-digital.com/{$this->gitlabProject->path_with_namespace}/-/pipelines", shouldOpenInNewTab: true),
             ])
-            ->sendToDatabase(User::find($this->userId));
+            ->sendToDatabase($this->user);
     }
 
-    protected function cleanUpRepository(): void
+    private function cleanUpRepository(): void
     {
+        if (!in_array($this->gitlabProject->id, $this->testingProjects)) {
+            return;
+        }
+
         // delete variables
-        collect($this->getGitLabManager()->projects()->variables($this->projectData->id))
+        collect($this->getGitLabManager()->projects()->variables($this->gitlabProject->id))
             // remove all variables except the ones with environment_scope = '*'
             ->reject(fn (array $variable) => str($variable['environment_scope']) == '*')
-            ->each(fn (array $variable) => $this->getGitLabManager()->projects()->removeVariable($this->projectData->id, $variable['key'], [
+            ->each(fn (array $variable) => $this->getGitLabManager()->projects()->removeVariable($this->gitlabProject->id, $variable['key'], [
                 'filter' => ['environment_scope' => $variable['environment_scope']],
             ]));
 
         // delete test branches
-        collect($this->getGitLabManager()->repositories()->branches($this->projectData->id))
+        collect($this->getGitLabManager()->repositories()->branches($this->gitlabProject->id))
             ->reject(fn (array $branch) => str($branch['name'])->startsWith(['develop']))
             ->filter(fn (array $branch) => str($branch['name'])->startsWith(['test', 'dev']))
-            ->each(fn (array $branch) => $this->getGitLabManager()->repositories()->deleteBranch($this->projectData->id, $branch['name']));
+            ->each(fn (array $branch) => $this->getGitLabManager()->repositories()->deleteBranch($this->gitlabProject->id, $branch['name']));
+
+        dump("Repository '{$this->gitlabProject->name}' cleaned up");
     }
 
-    protected function createCommitWithConfigFiles(string $stageName, DeployConfigBuilder $deployConfigBuilder): void
+    private function createCommitWithConfigFiles(string $stageName, DeployConfigBuilder $deployConfigBuilder): void
     {
-        $defaultBranch = $this->projectData->default_branch;
-
         // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
-        $commit = $this->getGitLabManager()->repositories()->createCommit($this->projectData->id, [
+        $actions = collect([
+            [
+                "action" => "create",
+                "file_path" => ".gitlab-ci.yml",
+                "content" => base64_encode(
+                    view('gitlab-ci-yml', [
+                        'templateVersion' => $this->ciCdOptions->template_version,
+                        'nodeVersion' => $this->ciCdOptions->node_version,
+                    ])->render()
+                ),
+                "encoding" => "base64",
+            ],
+            [
+                "action" => "create",
+                "file_path" => "deploy.php",
+                "content" => base64_encode($deployConfigBuilder->contentForDeployerScript($stageName)),
+                "encoding" => "base64",
+            ],
+        ])->map(function (array $action) {
+            try {
+                // check if file exists
+                $this->getGitLabManager()->repositoryFiles()->getFile($this->gitlabProject->id, $action['file_path'], $this->gitlabProject->default_branch);
+
+                // if file exists, update it
+                $action['action'] = 'update';
+            } catch (Gitlab\Exception\RuntimeException) {
+                // if file does not exist, create it
+                $action['action'] = 'create';
+            }
+
+            return $action;
+        });
+
+        $this->getGitLabManager()->repositories()->createCommit($this->gitlabProject->id, [
             "branch" => $stageName,
-            "start_branch" => $defaultBranch,
+            "start_branch" => $this->gitlabProject->default_branch,
             "commit_message" => "Configure deployment " . now()->format('H:i:s'),
             "author_name" => "DeployHelper",
             "author_email" => "deploy-helper@hexide-digital.com",
-            "actions" => [
-                [
-                    "action" => "create",
-                    "file_path" => ".gitlab-ci.yml",
-                    "content" => base64_encode(
-                        view('gitlab-ci-yml', [
-                            'templateVersion' => $this->ciCdOptions->template_version,
-                            'nodeVersion' => $this->ciCdOptions->node_version,
-                        ])->render()
-                    ),
-                    "encoding" => "base64",
-                ],
-                [
-                    "action" => "create",
-                    "file_path" => "deploy.php",
-                    "content" => base64_encode($deployConfigBuilder->contentForDeployerScript($stageName)),
-                    "encoding" => "base64",
-                ],
-            ],
+            "actions" => $actions->all(),
         ]);
-
-        dump($commit);
     }
 
-    protected function getGitLabManager(): GitLabManager
+    private function getGitLabManager(): GitLabManager
     {
         if (isset($this->gitLabManager)) {
             return $this->gitLabManager;
@@ -307,36 +237,304 @@ class ConfigureRepositoryJob implements ShouldQueue
         });
     }
 
-    protected function createLoggers(): void
+    private function makeDeployState(): DeployerState
     {
-        $this->logger = new LoggerBag();
+        //config([
+        //    'gitlab-deploy.working-dir' => "{$this->deployFolder}/deployer",
+        //    'gitlab-deploy.ssh' => [
+        //        'key_name' => 'id_rsa',
+        //        'folder' => "{$this->deployFolder}/ssh",
+        //    ],
+        //]);
 
-        $dir = str(config('gitlab-deploy.working-dir'))->finish('/')->append('logs');
-        $this->logger->setFileLogger(new FileLogger((string)$dir));
-        $this->logger->setConsoleLogger(new ConsoleLogger());
+        $state = new DeployerState();
+        $builder = app(ConfigurationBuilder::class);
+        $configurations = $builder->build($this->deployConfigurations);
+        $state->setConfigurations($configurations);
 
-        $this->logger->init();
+        return $state;
     }
 
-    protected function preparePipeData(int $tasksToExecute, DeployerState $state): PipeData
+    private function selectStage(string $stageName): void
     {
-        $executor = new BasicExecutor(
-            $this->logger,
-            $state->getReplacements(),
+        $this->state->setStage($this->state->getConfigurations()->stageBag->get($stageName));
+        $this->state->setupReplacements();
+        $this->state->setupGitlabVariables();
+
+        // rewrite replacements
+        $this->state->getReplacements()->merge([
+            'PROJ_DIR' => $this->deployFolder,
+            'IDENTITY_FILE' => "{$this->deployFolder}/ssh/id_rsa",
+            'IDENTITY_FILE_PUB' => "{$this->deployFolder}/ssh/id_rsa.pub",
+        ]);
+    }
+
+    private function initSftpClient(): void
+    {
+        $variables = $this->state->getReplacements();
+
+        $host = $variables->get('DEPLOY_SERVER'); // ip or domain
+        $login = $variables->get('DEPLOY_USER');
+
+        // todo: home directory
+        //      - resolve correct home directory
+        $root = "/home/$login";
+
+        // https://laravel.com/docs/filesystem#sftp-driver-configuration
+        // https://flysystem.thephpleague.com/docs/adapter/sftp-v3
+        $this->remoteFilesystem = Storage::build([
+            'driver' => 'sftp',
+            'host' => $host,
+
+            // Settings for basic authentication...
+            'username' => $login,
+            'password' => $variables->get('DEPLOY_PASS'),
+
+            // Settings for SSH key based authentication with encryption password...
+            // 'privateKey' => '/path/to/private_key',
+            // 'passphrase' => env('SFTP_PASSPHRASE'),
+
+            // Settings for file / directory permissions...
+            'visibility' => 'public', // `private` = 0600, `public` = 0644
+            'directory_visibility' => 'public', // `private` = 0700, `public` = 0755
+
+            // Optional SFTP Settings...
+            // 'maxTries' => 4,
+            'port' => intval($variables->get('SSH_PORT')),
+            'root' => $root,
+            'timeout' => 30,
+            // 'useAgent' => true,
+        ]);
+    }
+
+    private function generateSshKeysOnLocalhost(): void
+    {
+        File::ensureDirectoryExists("{$this->deployFolder}/ssh");
+
+        $identityFilePath = $this->state->getReplacements()->get('IDENTITY_FILE');
+        $isIdentityKeyExists = File::exists($identityFilePath) || File::exists("$identityFilePath.pub");
+        if (!$isIdentityKeyExists) {
+            $this->generateIdentityKey($identityFilePath, $this->user->email);
+        }
+
+        // update private key variable
+        $identityFileContent = File::get($identityFilePath) ?: '';
+        $variable = new Variable(
+            key: 'SSH_PRIVATE_KEY',
+            scope: $this->state->getStage()->name,
+            value: $identityFileContent,
         );
 
-        return new PipeData(
-            $state,
-            $this->logger,
-            $executor,
-            null,
-            $tasksToExecute,
+        $this->state->getGitlabVariablesBag()->add($variable);
+    }
+
+    private function prepareWorkingDirectoryForProjectSetup(): void
+    {
+        $this->deployFolder = $deployFolder = Storage::disk('local')->path('deploy_folder/project_' . $this->gitlabProject->id);
+
+        File::ensureDirectoryExists($this->deployFolder);
+
+        File::ensureDirectoryExists("$deployFolder/deployer");
+        File::ensureDirectoryExists("$deployFolder/remote");
+    }
+
+    private function generateIdentityKey(string $identityFilePath, string $comment): void
+    {
+        $command = ['ssh-keygen', '-t', 'rsa', '-N', '""', "-f", $identityFilePath, '-C', $comment];
+
+        $status = (new Process($command, $this->deployFolder))
+            ->setTimeout(0)
+            ->run(function ($type, $output) {
+                dump($output);
+            });
+
+        if ($status !== 0) {
+            throw new RuntimeException('failed');
+        }
+    }
+
+    private function createProjectVariables(): void
+    {
+        $variableBag = $this->state->getGitlabVariablesBag();
+
+        // create variables for template
+        if ($this->ciCdOptions->withDisableStages()) {
+            if ($this->ciCdOptions->isStagesDisabled('prepare')) {
+                $variableBag->add(
+                    new Variable(
+                        key: 'CI_COMPOSER_STAGE',
+                        scope: '*',
+                        value: 0,
+                    )
+                );
+            }
+            if ($this->ciCdOptions->isStagesDisabled('build')) {
+                $variableBag->add(
+                    new Variable(
+                        key: 'CI_BUILD_STAGE',
+                        scope: '*',
+                        value: 0,
+                    )
+                );
+            }
+        }
+
+        $gitlabVariablesCreator = new GitlabVariablesCreator($this->getGitLabManager());
+        $gitlabVariablesCreator
+            ->setProject($this->state->getConfigurations()->project)
+            ->setVariableBag($variableBag);
+
+        $gitlabVariablesCreator->execute();
+
+        // print error messages
+        // todo - store error messages
+        if ($fails = $gitlabVariablesCreator->getFailMassages()) {
+            dump($fails);
+        }
+    }
+
+    private function copySshKeysOnRemoteHost(): void
+    {
+        $identityFilePath = $this->state->getReplacements()->get('IDENTITY_FILE_PUB');
+        $publicKey = File::get($identityFilePath);
+
+        $authorizedKeysPath = '.ssh/authorized_keys';
+
+        if ($this->remoteFilesystem->fileExists($authorizedKeysPath)) {
+            $existingKeys = $this->remoteFilesystem->get($authorizedKeysPath);
+            if (!str_contains($existingKeys, $publicKey)) {
+                $this->remoteFilesystem->append($authorizedKeysPath, $publicKey);
+            }
+        } else {
+            $this->remoteFilesystem->put($authorizedKeysPath, $publicKey);
+        }
+    }
+
+    private function generateSshKeysOnRemoteHost(): void
+    {
+        $privateKeyPath = '.ssh/id_rsa';
+        $publicKeyPath = "{$privateKeyPath}.pub";
+
+        if (!$this->remoteFilesystem->fileExists($privateKeyPath)) {
+            $locallyGeneratedPrivateKeyPath = "{$this->deployFolder}/remote/ssh/id_rsa";
+            File::ensureDirectoryExists(File::dirname($locallyGeneratedPrivateKeyPath));
+
+            $this->generateIdentityKey($locallyGeneratedPrivateKeyPath, $this->state->getReplacements()->replace('{{USER}}@{{HOST}}'));
+
+            $this->remoteFilesystem->put($privateKeyPath, File::get($locallyGeneratedPrivateKeyPath));
+            $this->remoteFilesystem->put($publicKeyPath, File::get("{$locallyGeneratedPrivateKeyPath}.pub"));
+        }
+
+        // update variable
+        $publicKeyContent = $this->remoteFilesystem->get($publicKeyPath);
+
+        $this->state->getGitlabVariablesBag()->add(
+            new Variable(
+                key: 'SSH_PUB_KEY',
+                scope: $this->state->getStage()->name,
+                value: $publicKeyContent ?: '',
+            ),
         );
     }
 
-    private function isSshFilesExits(Replacements $replacements): bool
+    private function addGitlabToKnownHostsOnRemoteHost(): void
     {
-        return File::exists($replacements->replace('{{IDENTITY_FILE}}'))
-            || File::exists($replacements->replace('{{IDENTITY_FILE_PUB}}'));
+        $gitlabPublicKey = $this->getGitlabPublicKey();
+
+        $knownHostsPath = '.ssh/known_hosts';
+
+        if ($this->remoteFilesystem->fileExists($knownHostsPath)) {
+            $existingKeys = $this->remoteFilesystem->get($knownHostsPath);
+            if (!str_contains($existingKeys, $gitlabPublicKey)) {
+                $this->remoteFilesystem->append($knownHostsPath, $gitlabPublicKey);
+            }
+        } else {
+            $this->remoteFilesystem->put($knownHostsPath, $gitlabPublicKey);
+        }
+    }
+
+    private function getGitlabPublicKey(): string
+    {
+        $scanResult = '';
+        $command = ['ssh-keyscan', '-t', 'ssh-rsa', config('gitlab-deploy.gitlab-server')];
+        $status = (new Process($command))->run(function ($type, $buffer) use (&$scanResult) {
+            $scanResult = trim($buffer);
+        });
+
+        if ($status !== 0 || !Str::containsAll($scanResult, [
+                config('gitlab-deploy.gitlab-server'),
+                'ssh-rsa',
+            ])) {
+            throw new RuntimeException('Failed to retrieve public key for Gitlab server.');
+        }
+
+        return $scanResult;
+    }
+
+    private function prepareAndCopyDotEnvFileForRemote(): void
+    {
+        $fileData = $this->getGitLabManager()->repositoryFiles()->getFile($this->gitlabProject->id, '.env.example', $this->gitlabProject->default_branch);
+        $envExampleFileContent = base64_decode($fileData['content']);
+
+        $envFilePath = "{$this->state->getStage()->options->baseDir}/shared-test/.env." . now()->format('His');
+
+        if ($this->remoteFilesystem->fileExists($envFilePath)) {
+            return;
+        }
+
+        $envReplaces = $this->getEnvReplaces();
+
+        $contents = $envExampleFileContent;
+
+        foreach ($envReplaces as $pattern => $replacement) {
+            $replacement = $this->state->getReplacements()->replace($replacement);
+
+            // escape $ character
+            $replacement = str_replace('$', '\$', $replacement);
+
+            $contents = preg_replace("/$pattern/m", preg_quote($replacement), $contents);
+        }
+
+        $this->remoteFilesystem->put($envFilePath, $contents);
+    }
+
+    private function getEnvReplaces(): array
+    {
+        $mail = $this->state->getStage()->hasMailOptions()
+            ? [
+                '^MAIL_HOST=.*$' => 'MAIL_HOST={{MAIL_HOSTNAME}}',
+                '^MAIL_PORT=.*$' => 'MAIL_PORT=587',
+                '^MAIL_USERNAME=.*$' => 'MAIL_USERNAME={{MAIL_USER}}',
+                '^MAIL_PASSWORD=.*$' => 'MAIL_PASSWORD="{{MAIL_PASSWORD}}"',
+                '^MAIL_ENCRYPTION=.*$' => 'MAIL_ENCRYPTION=tls',
+                '^MAIL_FROM_ADDRESS=.*$' => 'MAIL_FROM_ADDRESS={{MAIL_USER}}',
+            ]
+            : [];
+
+        return array_merge($mail, [
+            '^APP_KEY=.*$' => 'APP_KEY=' . $this->generateRandomKey(),
+            '^APP_URL=.*$' => 'APP_URL={{DEPLOY_DOMAIN}}',
+
+            '^DB_DATABASE=.*$' => 'DB_DATABASE={{DB_DATABASE}}',
+            '^DB_USERNAME=.*$' => 'DB_USERNAME={{DB_USERNAME}}',
+            '^DB_PASSWORD=.*$' => 'DB_PASSWORD="{{DB_PASSWORD}}"',
+        ]);
+    }
+
+    /**
+     * Generate a random key for the application.
+     *
+     * @return string
+     * @see KeyGenerateCommand::generateRandomKey()
+     */
+    private function generateRandomKey(): string
+    {
+        return 'base64:' . base64_encode(Encrypter::generateKey(config('app.cipher')));
+    }
+
+    // todo - task insertCustomAliasesOnRemoteHost
+    private function insertCustomAliasesOnRemoteHost(): void
+    {
+        //
     }
 }
