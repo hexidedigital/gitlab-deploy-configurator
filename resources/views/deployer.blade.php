@@ -157,7 +157,7 @@ task('deploy', [
     'artisan:storage:link',
 
     // remove all cached files or run
-    'artisan:optimize:clear',
+    // 'artisan:optimize:clear',
     // or call individually only needed
     /* 'artisan:cache:clear',    */
     /* 'artisan:config:clear',   */
