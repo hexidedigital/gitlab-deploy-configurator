@@ -114,8 +114,6 @@ class ConfigureRepositoryJob implements ShouldQueue
             // create or append file content
             $this->insertCustomAliasesOnRemoteHost();
 
-            // task 9 - helpful suggestion
-            // todo - show helpful suggestion after job dispatching on page
 
             // todo - process only one stage
             break;

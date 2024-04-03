@@ -25,7 +25,6 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\MaxWidth;
-use Mockery\Matcher\Not;
 
 /**
  * @property Form $form
@@ -123,6 +122,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
         return $form->schema([
             Forms\Components\Wizard::make()
                 ->columnSpanFull()
+                ->hidden(fn () => $this->jobDispatched)
                 ->submitAction(
                     Forms\Components\Actions\Action::make('prepare repository')
                         ->label('Prepare repository')
@@ -145,6 +145,28 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                     Wizard\ParseAccessStep::make(),
                     Wizard\ConfirmationStep::make(),
                 ]),
+
+            Forms\Components\Section::make('Configure notes')
+                ->visible(fn () => $this->jobDispatched)
+                ->schema(function () {
+                    if (!$this->jobDispatched) {
+                        return [];
+                    }
+
+                    $configurations = $this->form->getRawState();
+
+                    $deployConfigBuilder = new DeployConfigBuilder();
+                    $deployConfigBuilder->parseConfiguration($configurations);
+
+                    $config = $deployConfigBuilder->buildDeployPrepareConfig();
+
+                    return [
+                        Forms\Components\View::make('helpful-suggestion')
+                            ->viewData([
+                                'config' => $config,
+                            ]),
+                    ];
+                }),
         ])->statePath('data');
     }
 }
