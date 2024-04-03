@@ -1,4 +1,4 @@
-{!! '<?php' !!}
+<{{ '?php' }}
 
 /**
  * Keep this version number to manage file versions in projects
@@ -110,6 +110,7 @@ host($DEPLOY_SERVER)
     ->setSshArguments([
         '-o UserKnownHostsFile=/dev/null',
         '-o StrictHostKeyChecking=no',
+        '-o IdentitiesOnly=yes',
     ]);
 
 

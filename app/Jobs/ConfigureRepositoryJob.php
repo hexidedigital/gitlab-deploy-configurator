@@ -187,6 +187,7 @@ class ConfigureRepositoryJob implements ShouldQueue
                     view('gitlab-ci-yml', [
                         'templateVersion' => $this->ciCdOptions->template_version,
                         'nodeVersion' => $this->ciCdOptions->node_version,
+                        'buildStageEnabled' => $this->ciCdOptions->isStageEnabled('build'),
                     ])->render()
                 ),
                 "encoding" => "base64",

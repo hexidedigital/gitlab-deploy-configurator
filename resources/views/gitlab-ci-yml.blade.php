@@ -6,5 +6,7 @@ include:
     ref: master
     file: 'templates/laravel.{{ $templateVersion }}.gitlab-ci.yml'
 
+@if($buildStageEnabled)
 Build:
   image: node:{{ $nodeVersion }}
+@endif
