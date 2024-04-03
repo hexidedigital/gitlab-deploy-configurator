@@ -126,7 +126,7 @@ class DeployConfigBuilder
                         'mail' => $this->parseMailLines($lines),
                     ];
                 }
-                if ($type->isMatch('/\w+.\w+/') && !$detected['server']) {
+                if ($type->isMatch('/\w+\.\w+/') && !$detected['server']) {
                     $detected['server'] = true;
 
                     return [

@@ -15,7 +15,6 @@ require 'contrib/rsync.php';
  * Configs
  */
 
-// TODO - set application name and github token
 $applicationName = '{{ $applicationName }}';
 $github_oauth_token = '{{ $githubOathToken }}';
 

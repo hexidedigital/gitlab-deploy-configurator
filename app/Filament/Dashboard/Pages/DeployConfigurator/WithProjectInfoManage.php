@@ -105,9 +105,11 @@ trait WithProjectInfoManage
                     ? 'islm-template'
                     : 'old-template for laravel ' . $laravelVersion;
             } else {
-                $template = $between($laravelVersion, 10, 11)
+                $template = $between($laravelVersion, 8, 11)
                     ? 'hd-based-template'
-                    : 'laravel-11';
+                    : ($between($laravelVersion, 11, 12)
+                        ? 'laravel-11'
+                        : 'not resolved');
             }
 
             $this->isLaravelRepository = true;
@@ -133,10 +135,12 @@ trait WithProjectInfoManage
             $fileData = $this->getGitLabManager()->repositoryFiles()->getFile($project->id, 'package.json', $project->default_branch);
             $packageJson = Utils::jsonDecode(base64_decode($fileData['content']), true);
 
+            $isInDependencies = fn (string $package) => data_get($packageJson, "devDependencies.{$package}", data_get($packageJson, "dependencies.{$package}"));
+
             // vite or webpack or not resolved
-            $frontendBuilder = data_get($packageJson, 'devDependencies.vite')
+            $frontendBuilder = $isInDependencies('vite')
                 ? 'vite'
-                : (data_get($packageJson, 'devDependencies.webpack') ? 'webpack' : null);
+                : ($isInDependencies('webpack') ? 'webpack' : '-');
 
             $this->fill([
                 'data.projectInfo.frontend_builder' => $frontendBuilder,
