@@ -40,7 +40,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
 
     protected static ?string $navigationIcon = 'heroicon-o-cog';
 
-    protected static string $view = 'filament.pages.base-edit-page';
+    protected static string $view = 'filament.dashboard.pages.deploy-configurator';
 
     /**
      * Form state
@@ -117,6 +117,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
             ->title('Repository setup started')
             ->body('Repository setup has been started. You will be notified when it is done.')
             ->send();
+
+        $this->js('renderConfetti()');
     }
 
     public function form(Form $form): Form
