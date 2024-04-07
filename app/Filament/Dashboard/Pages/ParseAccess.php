@@ -39,8 +39,15 @@ class ParseAccess extends Page implements Forms\Contracts\HasForms, HasParserInf
 
         $sampleFormData = new SampleFormData();
         $this->form->fill([
-            'projectInfo' => $sampleFormData->getProjectInfoData($user->gitlab_token),
-            'stages' => $sampleFormData->getSampleStages(),
+            'projectInfo' => [
+                ...$sampleFormData->getProjectInfoData($user->gitlab_token),
+                'selected_id' => '000',
+                'name' => 'Sample project',
+                'project_id' => '000',
+                'git_url' => 'git@gitlab.hexide-digital.com:namespace/sample-project.git',
+                'web_url' => 'https://gitlab.hexide-digital.com/namespace/sample-project',
+            ],
+            'stages' => $sampleFormData->getSampleStages(includeStage: true),
         ]);
     }
 

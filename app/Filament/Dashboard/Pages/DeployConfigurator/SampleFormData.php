@@ -60,12 +60,12 @@ class SampleFormData
         ];
     }
 
-    public function getSampleStages(): array
+    public function getSampleStages(bool $includeStage = false): array
     {
         $sampleInput = $this->getSampleInput();
         $defaultStageOptions = $this->getDefaultStageOptions();
 
-        return [
+        return array_filter([
             [
                 'name' => 'dev',
                 'access_input' => $sampleInput,
@@ -73,7 +73,7 @@ class SampleFormData
                     ...$defaultStageOptions,
                 ],
             ],
-            [
+            ($includeStage ? [
                 'name' => 'stage',
                 'access_input' => str($sampleInput)->replace([
                     'nwdev.net',
@@ -85,7 +85,7 @@ class SampleFormData
                 'options' => [
                     ...$defaultStageOptions,
                 ],
-            ],
-        ];
+            ] : null),
+        ]);
     }
 }
