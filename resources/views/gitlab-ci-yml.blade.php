@@ -7,6 +7,8 @@ include:
     file: 'templates/laravel.{{ $templateVersion }}.gitlab-ci.yml'
 
 @if($buildStageEnabled)
-Build:
-  image: node:{{ $nodeVersion }}
+# We need to specify the Node.js version you are using to build the resources,
+# as the Node.js version in the template will be up to date and may not be compatible with your project.
+variables:
+  NODE_VERSION: "{{ $nodeVersion }}"
 @endif
