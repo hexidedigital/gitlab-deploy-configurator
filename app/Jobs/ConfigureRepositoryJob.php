@@ -36,7 +36,10 @@ use Symfony\Component\Process\Process;
 
 class ConfigureRepositoryJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable;
+    use InteractsWithQueue;
+    use Queueable;
+    use SerializesModels;
     use WithGitlab;
 
     public int $timeout = 120;
@@ -102,7 +105,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         foreach ($this->deployConfigurations['stages'] as $stage) {
             $stageName = $stage['name'];
 
-            $this->logger->info("Processing stage: $stageName");
+            $this->logger->info("Processing stage: {$stageName}");
 
             // prepare configurations for stage
             $this->selectStage($stageName);
@@ -148,7 +151,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             $this->logger->info('Step 8: Inserting custom aliases on remote host');
             $this->insertCustomAliasesOnRemoteHost();
 
-            $this->logger->info("Stage '$stageName' processed");
+            $this->logger->info("Stage '{$stageName}' processed");
 
             // todo - process only one stage
             break;
@@ -156,7 +159,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         $this->sendSuccessNotification();
 
-        /*todo - mock*/
+        /* todo - mock */
         if ($this->isTestingProject()) {
             $this->release(60 * 2);
         }
@@ -168,10 +171,8 @@ class ConfigureRepositoryJob implements ShouldQueue
             'exception' => $exception->getMessage(),
         ]);
 
-        report($exception);
-//        $this->fail($exception);
-        /*todo - mock*/
-
+        report($exception); //        $this->fail($exception);
+        /* todo - mock */
         if ($this->isTestingProject()) {
             $this->release(60 * 2);
         } else {
@@ -296,13 +297,13 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function makeDeployState(): DeployerState
     {
-        //config([
+        // config([
         //    'gitlab-deploy.working-dir' => "{$this->deployFolder}/deployer",
         //    'gitlab-deploy.ssh' => [
         //        'key_name' => 'id_rsa',
         //        'folder' => "{$this->deployFolder}/ssh",
         //    ],
-        //]);
+        // ]);
 
         $state = new DeployerState();
         $builder = app(ConfigurationBuilder::class);
@@ -383,7 +384,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         File::ensureDirectoryExists("{$this->deployFolder}/ssh");
 
         $identityFilePath = $this->state->getReplacements()->get('IDENTITY_FILE');
-        $isIdentityKeyExists = File::exists($identityFilePath) || File::exists("$identityFilePath.pub");
+        $isIdentityKeyExists = File::exists($identityFilePath) || File::exists("{$identityFilePath}.pub");
         if (!$isIdentityKeyExists) {
             $this->generateIdentityKey($identityFilePath, $this->user->email);
         }
@@ -459,7 +460,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         if ($fails = $gitlabVariablesCreator->getFailMassages()) {
             $this->logger->error('Failed to create variables:');
             foreach ($fails as $failMessage) {
-                $this->logger->error("GitLab fail message: $failMessage");
+                $this->logger->error("GitLab fail message: {$failMessage}");
             }
         }
     }
@@ -574,7 +575,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             // escape $ character
             $replacement = str_replace('$', '\$', $replacement);
 
-            $contents = preg_replace("/$pattern/m", $replacement, $contents);
+            $contents = preg_replace("/{$pattern}/m", $replacement, $contents);
         }
 
         $this->remoteFilesystem->put($envFilePath, $contents);
@@ -633,6 +634,6 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         // todo: home directory
         //      - resolve correct home directory
-        return "/home/$login";
+        return "/home/{$login}";
     }
 }

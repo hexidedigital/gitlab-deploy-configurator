@@ -202,7 +202,7 @@ trait WithProjectInfoManage
 
     private function getScriptToCreateAndPushLaravelRepository(ProjectData $project): ?string
     {
-        return /** @lang Shell Script */ <<<BASH
+        return /* @lang Shell Script */ <<<BASH
             laravel new --git --branch=develop --no-interaction {$project->name}
             cd {$project->name}
             git remote add origin {$project->getCloneUrl()}
