@@ -37,9 +37,11 @@ class GitlabStep extends Forms\Components\Wizard\Step
                     throw new Halt();
                 }
             })
+            ->columns(3)
             ->schema([
                 Forms\Components\TextInput::make('projectInfo.token')
                     ->label('API auth token to access to the project')
+                    ->columnSpan(1)
                     ->password()
                     ->revealable()
                     ->helperText(new HtmlString('Read where to get this token <a href="https://github.com/hexidedigital/laravel-gitlab-deploy#gitlab-api-access-token" class="underline" target="_blank">here</a>'))
@@ -47,6 +49,8 @@ class GitlabStep extends Forms\Components\Wizard\Step
 
                 Forms\Components\TextInput::make('projectInfo.domain')
                     ->label('Your GitLab domain')
+                    ->columnSpan(1)
+                    ->hidden()
                     ->readOnly()
                     ->required(),
             ]);

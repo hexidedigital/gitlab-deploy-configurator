@@ -5,6 +5,7 @@ namespace App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
 use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Filament\Forms;
 use Filament\Support\Exceptions\Halt;
+use Illuminate\Support\HtmlString;
 
 class ConfirmationStep extends Forms\Components\Wizard\Step
 {
@@ -29,9 +30,27 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                 Forms\Components\Section::make('Summary')
                     ->schema(function (DeployConfigurator $livewire) {
                         return [
-                            Forms\Components\Placeholder::make('placeholder.name')
-                                ->label('Repository')
-                                ->content(fn (Forms\Get $get) => $get('projectInfo.name')),
+                            Forms\Components\Fieldset::make('Project')
+                                ->columns()
+                                ->schema([
+                                    Forms\Components\Placeholder::make('placeholder.name')
+                                        ->label('Repository')
+                                        ->content(fn (Forms\Get $get) => $get('projectInfo.name')),
+
+                                    Forms\Components\Placeholder::make('placeholder.project_id')
+                                        ->label('Project ID')
+                                        ->content(fn (Forms\Get $get) => $get('projectInfo.project_id')),
+
+                                    Forms\Components\Placeholder::make('placeholder.web_url')
+                                        ->columnSpanFull()
+                                        ->content(fn (Forms\Get $get) => new HtmlString(
+                                            sprintf(
+                                                '<a href="%s" class="underline" target="_blank">%s</a>',
+                                                $get('projectInfo.web_url'),
+                                                $get('projectInfo.web_url')
+                                            )
+                                        )),
+                                ]),
 
                             Forms\Components\Repeater::make('stages')
                                 ->itemLabel(fn (array $state) => $state['name'])
@@ -40,18 +59,35 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                                 ->reorderable(false)
                                 ->collapsible()
                                 ->schema([
-                                    Forms\Components\Grid::make(3)
+                                    Forms\Components\Grid::make()
                                         ->visible(fn (Forms\Get $get, DeployConfigurator $livewire) => $livewire->getParseStatusForStage($get('name')))
                                         ->schema([
-                                            $livewire->getServerFieldset(),
-                                            $livewire->getMySQLFieldset(),
-                                            $livewire->getSMTPFieldset(),
+                                            Forms\Components\Grid::make(1)
+                                                ->columnSpan(1)
+                                                ->schema([
+                                                    $livewire->getServerFieldset(),
+                                                    Forms\Components\Fieldset::make('Server details')
+                                                        ->schema([
+                                                            Forms\Components\Placeholder::make('options.bin_php')
+                                                                ->label('bin/php')
+                                                                ->content(fn (Forms\Get $get) => $get('options.bin_php')),
+                                                            Forms\Components\Placeholder::make('options.bin_composer')
+                                                                ->label('bin/composer')
+                                                                ->content(fn (Forms\Get $get) => $get('options.bin_composer')),
+                                                        ]),
+                                                ]),
+                                            Forms\Components\Grid::make(1)
+                                                ->columnSpan(1)
+                                                ->schema([
+                                                    $livewire->getMySQLFieldset(),
+                                                    $livewire->getSMTPFieldset(),
+                                                ]),
                                         ]),
                                 ]),
                         ];
                     }),
 
-                Forms\Components\Checkbox::make('isReadyToDeploy')
+                Forms\Components\Checkbox::make('is_ready_to_deploy')
                     ->label('I confirm that I have checked all the data and I am ready to deploy')
                     ->validationMessages([
                         'accepted' => 'You must confirm that you are ready to deploy.',

@@ -4,7 +4,7 @@ namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
 use Filament\Forms;
 
-trait WithAccessFileldset
+trait WithAccessFieldset
 {
     public function getServerFieldset(): Forms\Components\Fieldset
     {

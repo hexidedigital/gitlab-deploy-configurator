@@ -18,9 +18,11 @@ class CiCdStep extends Forms\Components\Wizard\Step
 
         $this
             ->icon('heroicon-o-server')
+            ->columns(3)
             ->schema([
                 Forms\Components\Select::make('ci_cd_options.template_version')
                     ->label('CI/CD template version')
+                    ->columnSpan(1)
                     ->live()
                     ->options($this->getCiCdTemplateVersions())
                     ->disableOptionWhen(fn (string $value) => !$this->isCiCdTemplateVersionAvailable($value))
@@ -29,19 +31,11 @@ class CiCdStep extends Forms\Components\Wizard\Step
                     )
                     ->required(),
 
-                Forms\Components\Select::make('ci_cd_options.node_version')
-                    ->label('Node.js version')
-                    ->options([
-                        '14' => '14',
-                        '16' => '16',
-                        '18' => '18',
-                        '20' => '20',
-                    ])
-                    ->required(),
-
                 Forms\Components\Fieldset::make('Enabled CI\CD stages')
                     ->visible(fn (Forms\Get $get) => $get('ci_cd_options.template_version') === '3.0')
                     ->columns(3)
+                    ->columnSpanFull()
+                    ->reactive()
                     ->schema([
                         Forms\Components\Checkbox::make('ci_cd_options.enabled_stages.prepare')
                             ->label('Prepare (composer)')
@@ -55,9 +49,29 @@ class CiCdStep extends Forms\Components\Wizard\Step
                             ->disabled(),
                     ]),
 
-                Forms\Components\Repeater::make('stages')
+                Forms\Components\Select::make('ci_cd_options.node_version')
+                    ->label('Node.js version')
+                    ->visible(fn (Forms\Get $get) => $get('ci_cd_options.enabled_stages.build'))
+                    ->columnSpan(1)
+                    ->options([
+                        '20' => '20',
+                        '18' => '18',
+                        '16' => '16',
+                        '14' => '14',
+                        '12' => '12',
+                    ])
+                    ->required(fn (Forms\Get $get) => $get('ci_cd_options.enabled_stages.build')),
+
+                Forms\Components\Repeater::make('Add stages to deploy')
+                    ->statePath('stages')
                     ->addActionLabel('Add new stage')
+                    ->columnSpanFull()
                     ->minItems(1)
+                    ->required()
+                    ->validationMessages([
+                        'required' => 'At least one stage is required.',
+                        'min' => 'At least one stage is required.',
+                    ])
                     ->grid(3)
                     ->schema([
                         Forms\Components\TextInput::make('name')

@@ -37,6 +37,7 @@ class ProjectStep extends Forms\Components\Wizard\Step
                     ->required()
                     ->live()
                     ->searchable()
+                    ->columnSpan(1)
                     ->getSearchResultsUsing(function (string $search, DeployConfigurator $livewire) {
                         return $livewire->fetchProjectFromGitLab([
                             'search' => $search,

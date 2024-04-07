@@ -6,7 +6,7 @@ use App\Filament\Contacts\HasParserInfo;
 use App\Filament\Dashboard\Pages\DeployConfigurator\InteractsWithParser;
 use App\Filament\Dashboard\Pages\DeployConfigurator\ParseAccessSchema;
 use App\Filament\Dashboard\Pages\DeployConfigurator\SampleFormData;
-use App\Filament\Dashboard\Pages\DeployConfigurator\WithAccessFileldset;
+use App\Filament\Dashboard\Pages\DeployConfigurator\WithAccessFieldset;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Filament\Forms;
@@ -20,7 +20,7 @@ use Filament\Pages\Page;
 class ParseAccess extends Page implements Forms\Contracts\HasForms, HasParserInfo
 {
     use InteractsWithForms;
-    use WithAccessFileldset;
+    use WithAccessFieldset;
     use InteractsWithParser;
 
     protected static ?string $navigationIcon = 'heroicon-o-document-text';

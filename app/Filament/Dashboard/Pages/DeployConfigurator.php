@@ -5,7 +5,7 @@ namespace App\Filament\Dashboard\Pages;
 use App\Filament\Contacts\HasParserInfo;
 use App\Filament\Dashboard\Pages\DeployConfigurator\InteractsWithParser;
 use App\Filament\Dashboard\Pages\DeployConfigurator\SampleFormData;
-use App\Filament\Dashboard\Pages\DeployConfigurator\WithAccessFileldset;
+use App\Filament\Dashboard\Pages\DeployConfigurator\WithAccessFieldset;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithProjectInfoManage;
 use App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
@@ -35,7 +35,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
     use InteractsWithForms;
     use WithGitlab;
     use WithProjectInfoManage;
-    use WithAccessFileldset;
+    use WithAccessFieldset;
     use InteractsWithParser;
 
     protected static ?string $navigationIcon = 'heroicon-o-cog';
@@ -80,6 +80,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
      */
     public function setupRepository(): void
     {
+        $this->form->validate();
+
         if ($this->jobDispatched) {
             Notification::make()
                 ->warning()
