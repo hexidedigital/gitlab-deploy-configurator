@@ -167,17 +167,15 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     public function failed(Exception $exception): void
     {
+        $this->logger = Log::channel('daily');
+
         $this->logger->error('Failed configuring repository', [
             'exception' => $exception->getMessage(),
         ]);
 
         report($exception); //        $this->fail($exception);
-        /* todo - mock */
-        if ($this->isTestingProject()) {
-            $this->release(60 * 2);
-        } else {
-            $this->fail($exception);
-        }
+
+        $this->fail($exception);
     }
 
     private function sendSuccessNotification(): void
