@@ -88,4 +88,20 @@ trait WithGitlab
             throw $exception;
         }
     }
+
+    public function getFileContent(ProjectData $projectData, string $path, bool $throwOnError = false): ?string
+    {
+        try {
+            // check if file exists
+            $fileData = $this->getGitLabManager()->repositoryFiles()->getFile($projectData->id, $path, $projectData->default_branch);
+
+            return base64_decode($fileData['content']) ?: null;
+        } catch (Gitlab\Exception\RuntimeException $exception) {
+            if ($throwOnError) {
+                throw $exception;
+            }
+        }
+
+        return null;
+    }
 }

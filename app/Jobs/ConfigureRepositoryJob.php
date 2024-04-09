@@ -11,7 +11,6 @@ use App\Parser\DeployConfigBuilder;
 use Exception;
 use Filament\Notifications\Actions\Action;
 use Filament\Notifications\Notification;
-use Gitlab;
 use GrahamCampbell\GitLab\GitLabManager;
 use HexideDigital\GitlabDeploy\DeployerState;
 use HexideDigital\GitlabDeploy\Gitlab\Tasks\GitlabVariablesCreator;
@@ -236,39 +235,60 @@ class ConfigureRepositoryJob implements ShouldQueue
         // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
         $actions = collect([
             [
-                "action" => "create",
+                // "action" => "create",
                 "file_path" => ".gitlab-ci.yml",
-                "content" => base64_encode(
-                    view('gitlab-ci-yml', [
-                        'templateVersion' => $this->ciCdOptions->template_version,
-                        'nodeVersion' => $this->ciCdOptions->node_version,
-                        'buildStageEnabled' => $this->ciCdOptions->isStageEnabled('build'),
-                    ])->render()
-                ),
-                "encoding" => "base64",
+                "content" => view('gitlab-ci-yml', [
+                    'templateVersion' => $this->ciCdOptions->template_version,
+                    'nodeVersion' => $this->ciCdOptions->node_version,
+                    'buildStageEnabled' => $this->ciCdOptions->isStageEnabled('build'),
+                ])->render(),
             ],
             [
-                "action" => "create",
+                // "action" => "create",
                 "file_path" => "deploy.php",
-                "content" => base64_encode($deployConfigBuilder->contentForDeployerScript($stageName)),
-                "encoding" => "base64",
+                "content" => $deployConfigBuilder->contentForDeployerScript($stageName),
             ],
         ])->map(function (array $action) {
-            try {
-                // check if file exists
-                $this->getGitLabManager()->repositoryFiles()->getFile($this->gitlabProject->id, $action['file_path'], $this->gitlabProject->default_branch);
+            $generatedContent = $action['content'];
 
-                // if file exists, update it
-                $action['action'] = 'update';
-            } catch (Gitlab\Exception\RuntimeException) {
-                // if file does not exist, create it
-                $action['action'] = 'create';
+            // check if file exists
+            $currentContent = $this->getFileContent($this->gitlabProject, $action['file_path']);
+
+            // if current content is same with generated - skip
+            if ($currentContent === $generatedContent) {
+                return null;
             }
 
-            return $action;
-        });
+            // if file does not exist, create it
+            if (empty($currentContent)) {
+                $action['action'] = 'create';
+            } else {
+                // if file exists and new content, update it
+                $action['action'] = 'update';
+            }
 
-        $this->getGitLabManager()->repositories()->createCommit($this->gitlabProject->id, [
+            $action['content'] = base64_encode($generatedContent);
+            $action['encoding'] = 'base64';
+
+            return $action;
+        })->filter();
+
+        // if files without changes, just create branch
+        if ($actions->isEmpty()) {
+            $this->logger->info('No changes in config files');
+
+            $this->logger->info("Creating branch '{$stageName}' for deployment");
+
+            $branch = $this->getGitLabManager()->repositories()
+                ->createBranch($this->gitlabProject->id, $stageName, $this->gitlabProject->default_branch);
+
+            $this->logger->debug('branch response', ['branch' => $branch]);
+
+            return;
+        }
+
+        // otherwise, create commit with new files
+        $commit = $this->getGitLabManager()->repositories()->createCommit($this->gitlabProject->id, [
             "branch" => $stageName,
             "start_branch" => $this->gitlabProject->default_branch,
             "commit_message" => "Configure deployment",
@@ -276,6 +296,8 @@ class ConfigureRepositoryJob implements ShouldQueue
             "author_email" => "deploy-helper@hexide-digital.com",
             "actions" => $actions->all(),
         ]);
+
+        $this->logger->debug('commit response', ['commit' => $commit]);
     }
 
     private function getGitLabManager(): GitLabManager
@@ -526,15 +548,13 @@ class ConfigureRepositoryJob implements ShouldQueue
     private function getGitlabPublicKey(): string
     {
         $scanResult = '';
-        $command = ['ssh-keyscan', '-t', 'ssh-rsa', config('gitlab-deploy.gitlab-server')];
+        $gitlabServer = config('gitlab-deploy.gitlab-server');
+        $command = ['ssh-keyscan', '-t', 'ssh-rsa', $gitlabServer];
         $status = (new Process($command))->run(function ($type, $buffer) use (&$scanResult) {
             $scanResult = trim($buffer);
         });
 
-        if ($status !== 0 || !Str::containsAll($scanResult, [
-                config('gitlab-deploy.gitlab-server'),
-                'ssh-rsa',
-            ])) {
+        if ($status !== 0 || !Str::containsAll($scanResult, [$gitlabServer, 'ssh-rsa'])) {
             throw new RuntimeException('Failed to retrieve public key for Gitlab server.');
         }
 
@@ -543,8 +563,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function prepareAndCopyDotEnvFileForRemote(): void
     {
-        $fileData = $this->getGitLabManager()->repositoryFiles()->getFile($this->gitlabProject->id, '.env.example', $this->gitlabProject->default_branch);
-        $envExampleFileContent = base64_decode($fileData['content']);
+        $envExampleFileContent = $this->getFileContent($this->gitlabProject, '.env.example');
 
         // /home/user
         $homeDirectory = $this->resolveHomeDirectory();
