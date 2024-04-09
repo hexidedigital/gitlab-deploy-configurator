@@ -83,8 +83,7 @@ trait WithProjectInfoManage
         // fetch project files
 
         try {
-            $fileData = $this->getGitLabManager()->repositoryFiles()->getFile($project->id, 'composer.json', $project->default_branch);
-            $composerJson = Utils::jsonDecode(base64_decode($fileData['content']), true);
+            $composerJson = Utils::jsonDecode($this->getFileContent($project, 'composer.json', throwOnError: true), true);
 
             $laravelVersion = data_get($composerJson, 'require.laravel/framework');
             $usesYajra = data_get($composerJson, 'require.yajra/laravel-datatables-html');
@@ -114,8 +113,8 @@ trait WithProjectInfoManage
 
             $this->isLaravelRepository = true;
         } catch (Gitlab\Exception\RuntimeException $e) {
+            $this->isLaravelRepository = false;
             if ($e->getCode() == 404) {
-                $this->isLaravelRepository = false;
                 Notification::make()->title('Project does not have composer.json')->warning()->send();
             } else {
                 Notification::make()->title('Failed to detect project template')->danger()->send();
@@ -132,8 +131,7 @@ trait WithProjectInfoManage
         }
 
         try {
-            $fileData = $this->getGitLabManager()->repositoryFiles()->getFile($project->id, 'package.json', $project->default_branch);
-            $packageJson = Utils::jsonDecode(base64_decode($fileData['content']), true);
+            $packageJson = Utils::jsonDecode($this->getFileContent($project, 'package.json', throwOnError: true), true);
 
             $isInDependencies = fn (string $package) => data_get($packageJson, "devDependencies.{$package}", data_get($packageJson, "dependencies.{$package}"));
 
