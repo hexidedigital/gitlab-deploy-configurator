@@ -371,10 +371,10 @@ class ConfigureRepositoryJob implements ShouldQueue
             // 'useAgent' => true,
         ]);
 
-        // try connection
-        $this->logger->info('Checking connection to remote host');
-        $this->remoteFilesystem->exists($root);
-        $this->logger->info('Connection to remote host established');
+        // todo: try connection
+//        $this->logger->info('Checking connection to remote host');
+//        $this->remoteFilesystem->exists('dummy-file.txt');
+//        $this->logger->info('Connection to remote host established');
     }
 
     private function generateSshKeysOnLocalhost(): void
