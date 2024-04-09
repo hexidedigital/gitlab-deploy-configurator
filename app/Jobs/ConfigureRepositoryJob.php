@@ -124,7 +124,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             // task 3 - generate ssh keys on remote host
             // fetch existing keys, or generate new one locally (specify user and login) or on remove (need execute)
             $this->logger->info('Step 3: Generating SSH keys on remote host');
-            $this->generateSshKeysOnRemoteHost();
+            $this->generateSshKeysOnRemoteHost($stageName);
 
             // task 4 - create project variables on gitlab
             // create and configure gitlab variables
@@ -480,13 +480,13 @@ class ConfigureRepositoryJob implements ShouldQueue
         }
     }
 
-    private function generateSshKeysOnRemoteHost(): void
+    private function generateSshKeysOnRemoteHost(string $stageName): void
     {
         $privateKeyPath = '.ssh/id_rsa';
         $publicKeyPath = "{$privateKeyPath}.pub";
 
         if (!$this->remoteFilesystem->fileExists($privateKeyPath)) {
-            $locallyGeneratedPrivateKeyPath = "{$this->deployFolder}/remote/ssh/id_rsa";
+            $locallyGeneratedPrivateKeyPath = "{$this->deployFolder}/remote/{$stageName}/ssh/id_rsa";
             File::ensureDirectoryExists(File::dirname($locallyGeneratedPrivateKeyPath));
 
             $this->generateIdentityKey($locallyGeneratedPrivateKeyPath, $this->state->getReplacements()->replace('{{USER}}@{{HOST}}'));
