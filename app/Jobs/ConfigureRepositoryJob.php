@@ -43,7 +43,7 @@ class ConfigureRepositoryJob implements ShouldQueue
     use WithGitlab;
 
     public int $timeout = 120;
-    public int $tries = 10;
+    public int $tries = 2;
 
     private ProjectData $gitlabProject;
 
@@ -154,9 +154,9 @@ class ConfigureRepositoryJob implements ShouldQueue
             $this->insertCustomAliasesOnRemoteHost();
 
             $this->logger->info("Stage '{$stageName}' processed");
-        }
 
-        $this->sendSuccessNotification();
+            $this->sendSuccessNotification($stageName);
+        }
 
         /* todo - mock */
         if ($this->isTestingProject()) {
@@ -172,25 +172,30 @@ class ConfigureRepositoryJob implements ShouldQueue
             'exception' => $exception->getMessage(),
         ]);
 
-        report($exception); //        $this->fail($exception);
+        report($exception);
 
         $this->fail($exception);
     }
 
-    private function sendSuccessNotification(): void
+    private function sendSuccessNotification(string $stageName): void
     {
         $this->logger->info("Repository '{$this->gitlabProject->name}' configured successfully");
 
         Notification::make()
             ->success()
             ->icon('heroicon-o-rocket-launch')
-            ->title("Repository '{$this->gitlabProject->name}' configured successfully")
+            ->title("Repository '{$this->gitlabProject->name}'")
+            ->body("Stage '{$stageName}' for repository processed successfully")
             ->actions([
                 Action::make('view')
                     ->label('View in GitLab')
                     ->icon('feathericon-gitlab')
                     ->button()
                     ->url("https://gitlab.hexide-digital.com/{$this->gitlabProject->path_with_namespace}/-/pipelines", shouldOpenInNewTab: true),
+
+                Action::make('mark_as_read')
+                    ->label('Mark as read')
+                    ->markAsRead()
             ])
             ->sendToDatabase($this->user);
     }
