@@ -2,7 +2,9 @@
 
 namespace App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
 
+use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Filament\Forms;
+use Gitlab\Exception\RuntimeException;
 use Illuminate\Support\HtmlString;
 
 class CiCdStep extends Forms\Components\Wizard\Step
@@ -18,7 +20,7 @@ class CiCdStep extends Forms\Components\Wizard\Step
 
         $this
             ->icon('heroicon-o-server')
-            ->columns(3)
+            ->columns()
             ->schema([
                 Forms\Components\Select::make('ci_cd_options.template_version')
                     ->label('CI/CD template version')
@@ -66,19 +68,38 @@ class CiCdStep extends Forms\Components\Wizard\Step
                     ->statePath('stages')
                     ->addActionLabel('Add new stage')
                     ->columnSpanFull()
+                    ->itemLabel(fn (array $state) => str($state['name'] ? "Add **" . $state['name'] . "** stage" : 'Adding new stage...')->markdown()->toHtmlString())
+                    ->reorderable(false)
                     ->minItems(1)
                     ->required()
                     ->validationMessages([
                         'required' => 'At least one stage is required.',
                         'min' => 'At least one stage is required.',
                     ])
-                    ->grid(3)
+                    ->grid()
                     ->schema([
                         Forms\Components\TextInput::make('name')
+                            ->live(onBlur: true)
                             ->label('Stage name (branch name)')
                             ->hiddenLabel()
-                            ->distinct()
                             ->placeholder('dev/stage/master/prod')
+                            ->distinct()
+                            ->notIn(function (DeployConfigurator $livewire, Forms\Get $get) {
+                                if ($get('force_deploy')) {
+                                    return [];
+                                }
+
+                                // prevent adding existing branch
+                                $branches = $livewire->getGitLabManager()->repositories()->branches($get('../../projectInfo.selected_id'));
+
+                                $currentBranches = collect($branches)->map(fn ($branch) => $branch['name']);
+
+                                return $currentBranches->toArray();
+                            })
+                            ->validationMessages([
+                                'distinct' => 'Name cannot be duplicated.',
+                                'not_in' => 'Branch name already exists.',
+                            ])
                             ->datalist([
                                 'dev',
                                 'stage',
@@ -86,13 +107,32 @@ class CiCdStep extends Forms\Components\Wizard\Step
                                 'prod',
                             ])
                             ->required(),
+
+                        // when branch exists, force deploy to this branch
+                        Forms\Components\Checkbox::make('force_deploy')
+                            ->label('This branch exists. Force deploy to this branch?')
+                            ->visible(function (Forms\Get $get, DeployConfigurator $livewire) {
+                                try {
+                                    $branches = $livewire->getGitLabManager()->repositories()->branches($get('../../projectInfo.selected_id'));
+                                } catch (RuntimeException) {
+                                    return false;
+                                }
+
+                                $currentBranches = collect($branches)->map(fn ($branch) => $branch['name']);
+
+                                return $currentBranches->contains($get('name'));
+                            })
+                            ->columnSpan(1),
                     ]),
             ]);
     }
 
     protected function isCiCdTemplateVersionAvailable(string $value): bool
     {
-        return $value === '3.0';
+        return in_array($value, [
+            '3.0',
+            // '2.2',
+        ]);
     }
 
     protected function getCiCdTemplateVersions(): array
