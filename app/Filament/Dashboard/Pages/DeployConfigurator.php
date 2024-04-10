@@ -68,8 +68,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
             'stages' => $sampleFormData->getSampleStages(),
         ]);
 
+        // auto select project for testing user
         if ($user->gitlab_id == 89) {
-            // todo - autoselect project
             $this->selectProject('689'); // select 'laravel 11 playground'
             // $this->selectProject('705'); // select 'test' (empty project)
         }
@@ -145,7 +145,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                     Wizard\GitlabStep::make(),
                     Wizard\ProjectStep::make(),
                     Wizard\CiCdStep::make(),
-                    Wizard\ServerDetailsStep::make(),
                     Wizard\ParseAccessStep::make(),
                     Wizard\ConfirmationStep::make(),
                 ]),

@@ -67,7 +67,14 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                                                 ->schema([
                                                     $livewire->getServerFieldset(),
                                                     Forms\Components\Fieldset::make('Server details')
+                                                        ->columns(1)
                                                         ->schema([
+                                                            Forms\Components\Placeholder::make('options.base_dir_pattern')
+                                                                ->label('Base dir pattern')
+                                                                ->content(fn (Forms\Get $get) => $get('options.base_dir_pattern')),
+                                                            Forms\Components\Placeholder::make('options.home_folder')
+                                                                ->label('Home folder')
+                                                                ->content(fn (Forms\Get $get) => $get('options.home_folder')),
                                                             Forms\Components\Placeholder::make('options.bin_php')
                                                                 ->label('bin/php')
                                                                 ->content(fn (Forms\Get $get) => $get('options.bin_php')),

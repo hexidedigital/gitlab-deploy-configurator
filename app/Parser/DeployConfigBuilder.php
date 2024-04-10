@@ -71,6 +71,8 @@ class DeployConfigBuilder
                     'options' => [
                         'git-url' => $this->projectDetails->git_url,
                         'base-dir-pattern' => data_get($stageConfig, 'options.base_dir_pattern'),
+                        /*todo - add new option*/
+                        'home-folder' => data_get($stageConfig, 'options.home_folder'),
                         'bin-composer' => data_get($stageConfig, 'options.bin_composer'),
                         'bin-php' => data_get($stageConfig, 'options.bin_php'),
                     ],
@@ -108,6 +110,7 @@ class DeployConfigBuilder
         $this->accessInfo[$stageName] = collect(explode("\n", $accessInput))
             ->chunkWhile(fn ($line) => !empty(trim($line)))
             ->mapWithKeys(function (Collection $lines, int $chunkIndex) use ($stageName, &$detected) {
+                /** @var Collection $lines */
                 $lines = $lines->filter(fn ($line) => str($line)->squish()->isNotEmpty())->values();
 
                 $type = str($lines->first())->lower();
@@ -134,10 +137,12 @@ class DeployConfigBuilder
                     ];
                 }
 
-                $this->notResolved[$stageName][] = [
-                    'chunk' => $chunkIndex + 1,
-                    'lines' => $lines,
-                ];
+                if ($lines->filter()->isNotEmpty()) {
+                    $this->notResolved[$stageName][] = [
+                        'chunk' => $chunkIndex + 1,
+                        'lines' => $lines,
+                    ];
+                }
 
                 return [
                     'skip' => null,

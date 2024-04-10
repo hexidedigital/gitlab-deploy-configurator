@@ -12,6 +12,9 @@ use Filament\Notifications\Notification;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\ActionSize;
 use Filament\Support\Enums\Alignment;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
+use phpseclib3\Net\SSH2;
 use Throwable;
 
 class ParseAccessSchema extends Forms\Components\Grid
@@ -73,17 +76,16 @@ class ParseAccessSchema extends Forms\Components\Grid
                         ])
                         ->visible($this->nameInputVisible),
 
-                    Forms\Components\Grid::make(5)
+                    Forms\Components\Grid::make(6)
                         ->visible(fn (Forms\Get $get) => $get('name'))
                         ->schema([
                             Forms\Components\Section::make(fn (array $state) => str("Access data for **" . $state['name'] . "** stage")->markdown()->toHtmlString())
-                                ->columnSpan(2)
+                                ->columnSpan(4)
                                 ->footerActions([
                                     $this->getParseStageAccessAction(),
                                 ])
                                 ->footerActionsAlignment(Alignment::End)
                                 ->collapsible()
-                                ->persistCollapsed(false)
                                 ->collapsed(fn (Forms\Get $get, HasParserInfo $livewire) => $livewire->getParseStatusForStage($get('name')))
                                 ->schema([
                                     Forms\Components\Textarea::make('access_input')
@@ -110,7 +112,7 @@ class ParseAccessSchema extends Forms\Components\Grid
                             Forms\Components\Section::make('Parse problems')
                                 ->icon('heroicon-o-exclamation-circle')
                                 ->iconColor(Color::Red)
-                                ->columnSpan(3)
+                                ->columnSpan(2)
                                 ->visible(fn (Forms\Get $get) => !is_null($get('notResolved')))
                                 ->schema(function (Forms\Get $get) {
                                     return collect($get('notResolved'))->map(function ($info) {
@@ -299,9 +301,46 @@ class ParseAccessSchema extends Forms\Components\Grid
                         ])
                         ->required(),
 
-                    $livewire->getServerFieldset(),
-                    $livewire->getMySQLFieldset(),
-                    $livewire->getSMTPFieldset(),
+                    Forms\Components\Grid::make()->schema([
+
+                        Forms\Components\Grid::make(1)
+                            ->columnSpan(1)
+                            ->schema([
+                                $livewire->getServerFieldset(),
+                            ]),
+                        Forms\Components\Grid::make(1)
+                            ->columnSpan(1)
+                            ->schema([
+                                $livewire->getMySQLFieldset(),
+                                $livewire->getSMTPFieldset(),
+                            ]),
+
+                        Forms\Components\Actions::make([
+                            $this->getTestSshButton(),
+                            $this->getSshConnectionInfoButton(),
+                        ])->columnSpanFull()->alignCenter(),
+
+                        Forms\Components\Fieldset::make('Server details')
+                            ->columnSpanFull()
+                            ->columns()
+                            ->schema([
+                                Forms\Components\Placeholder::make('server_connection_result')
+                                    ->label('Server info')
+                                    ->columnSpan(1)
+                                    ->content(fn (Forms\Get $get) => str($get('server_connection_result') ?: 'not fetched yet')->toHtmlString()),
+
+                                Forms\Components\Grid::make(1)->columnSpan(1)->schema([
+                                    Forms\Components\TextInput::make('options.base_dir_pattern')
+                                        ->required(),
+                                    Forms\Components\TextInput::make('options.home_folder')
+                                        ->required(),
+                                    Forms\Components\TextInput::make('options.bin_php')
+                                        ->required(),
+                                    Forms\Components\TextInput::make('options.bin_composer')
+                                        ->required(),
+                                ]),
+                            ]),
+                    ]),
                 ];
             });
     }
@@ -309,6 +348,135 @@ class ParseAccessSchema extends Forms\Components\Grid
     public function showConfirmationCheckbox(bool|Closure $callback = true): static
     {
         return $this->tap(fn () => $this->confirmationCheckboxVisible = $callback);
+    }
+
+    protected function connectToServer(array $server): bool|SSH2
+    {
+        $ssh = new SSH2($server['host'], $server['port'] ?? 22);
+
+        if ($ssh->login($server['login'], $server['password'])) {
+            return $ssh;
+        }
+
+        return false;
+    }
+
+    protected function getTestSshButton(): Forms\Components\Actions\Action
+    {
+        return Forms\Components\Actions\Action::make('test_ssh')
+            ->label('Check SSH connection')
+            ->icon('heroicon-o-key')
+            ->action(function (Forms\Get $get, Forms\Set $set) {
+                $set('server_connection_result', null);
+                $set('ssh_connected', false);
+
+                $server = $get('accessInfo.server');
+
+                $ssh = $this->connectToServer($server);
+
+                if (!$ssh) {
+                    Notification::make()->title('SSH connection failed')->danger()->send();
+
+                    return;
+                }
+
+                $set('ssh_connected', true);
+
+                Notification::make()->title('SSH connection successful')->success()->send();
+            });
+    }
+
+    protected function getSshConnectionInfoButton(): Forms\Components\Actions\Action
+    {
+        return Forms\Components\Actions\Action::make('fetch_server_info')
+            ->label('Fetch server info')
+            ->disabled(fn (Forms\Get $get) => !$get('ssh_connected'))
+            ->color(Color::Green)
+            ->icon('heroicon-o-server')
+            ->action(function (Forms\Get $get, Forms\Set $set) {
+                $server = $get('accessInfo.server');
+
+                $ssh = $this->connectToServer($server);
+
+                if (!$ssh) {
+                    Notification::make()->title('SSH connection failed')->danger()->send();
+                    $set('ssh_connected', false);
+
+                    return;
+                }
+
+                $ssh->enableQuietMode();
+
+                $homeFolder = trim($ssh->exec('echo $HOME'), '/');
+                /** @var Collection $paths */
+                $paths = str($ssh->exec('whereis php php8.2 composer'))
+                    ->explode(PHP_EOL)
+                    ->mapWithKeys(function ($pathInfo, $line) {
+                        $binType = str($pathInfo)->before(':')->value();
+                        $binPath = ($all = str($pathInfo)->after(': ')->explode(' '))->first();
+
+                        if (!$binType || !$binPath) {
+                            return [$line => null];
+                        }
+
+                        if (Str::startsWith($binType, 'php')) {
+                            $all = $all->reject(fn($path) => Str::contains($path, ['-', '.gz', 'man']));
+                        }
+
+                        return [
+                            $binType => [
+                                'bin' => $binPath,
+                                'all' => $all->map(fn ($path) => "{$path}")->implode('; '),
+                            ],
+                        ];
+                    })
+                    ->filter();
+
+                $phpV = '-';
+                $phpVOutput = '-';
+                $composerV = '-';
+                $composerVOutput = '-';
+
+                $phpInfo = $paths->get('php8.2', $paths->get('php'));
+                if ($binPhp = $phpInfo['bin']) {
+                    $phpVOutput = $ssh->exec($binPhp . ' -v');
+
+                    $phpV = preg_match('/PHP (\d+\.\d+\.\d+)/', $phpVOutput, $matches) ? $matches[1] : '-';
+
+                    if ($binComposer = $paths->get('composer')['bin']) {
+                        $composerVOutput = $ssh->exec("{$binPhp} {$binComposer} -V");
+
+                        $composerV = preg_match('/Composer (?:version )?(\d+\.\d+\.\d+)/', $composerVOutput, $matches) ? $matches[1] : '-';
+                    }
+                }
+
+                $info = collect([
+                    "home folder: {$homeFolder}",
+                    "<hr>",
+                    "bin paths:",
+                    ...$paths->map(fn ($path, $type) => "{$type}: {$path['bin']}"),
+                    "<hr>",
+                    "all php bins: {$phpInfo['all']}",
+                    "<hr>",
+                    "php: ({$phpV})",
+                    $phpVOutput,
+                    "<hr>",
+                    "composer: (v{$composerV})",
+                    $composerVOutput,
+                    "<hr>",
+                ])->implode('<br>');
+
+                $set('server_connection_result', $info);
+
+                // set server details options
+                $domain = str($server['domain'])->replace(['https://', 'http://'], '')->value();
+                $set('options.base_dir_pattern', "{$homeFolder}/web/{$domain}/public_html");
+                $set('options.home_folder', $homeFolder);
+                $set('options.bin_php', $phpInfo['bin']);
+                $set('options.bin_composer', "{$phpInfo['bin']} {$paths->get('composer')['bin']}");
+
+                Notification::make()->title('Server info fetched')->success()->send();
+            });
     }
 
     protected function tryToParseAccessInput(string $stageName, ?string $accessInput): ?DeployConfigBuilder

@@ -29,6 +29,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use phpseclib3\Net\SSH2;
 use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Symfony\Component\Process\Process;
@@ -104,12 +105,14 @@ class ConfigureRepositoryJob implements ShouldQueue
         foreach ($this->deployConfigurations['stages'] as $stage) {
             $stageName = $stage['name'];
 
+            $this->logger->withContext(['stage' => $stageName]);
+
             $this->logger->info("Processing stage: {$stageName}");
 
             // prepare configurations for stage
             $this->selectStage($stageName);
 
-            $this->initSftpClient();
+            $this->initSftpClient($stage);
 
             // task 1 - generate ssh keys on localhost
             $this->logger->info('Step 1: Generating SSH keys on localhost');
@@ -151,9 +154,6 @@ class ConfigureRepositoryJob implements ShouldQueue
             $this->insertCustomAliasesOnRemoteHost();
 
             $this->logger->info("Stage '{$stageName}' processed");
-
-            // todo - process only one stage
-            break;
         }
 
         $this->sendSuccessNotification();
@@ -357,7 +357,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         $this->state->getGitlabVariablesBag()->add($variable);
     }
 
-    private function initSftpClient(): void
+    private function initSftpClient(array $stage): void
     {
         $this->logger->info('Initializing SFTP client');
 
@@ -365,7 +365,19 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         $host = $variables->get('DEPLOY_SERVER'); // ip or domain
         $login = $variables->get('DEPLOY_USER');
-        $root = $this->resolveHomeDirectory();
+        $password = $variables->get('DEPLOY_PASS');
+
+        $this->logger->info('Checking connection to remote host');
+        $ssh = new SSH2($host, ($port =$variables->get('SSH_PORT') ?: 22));
+        if (!$ssh->login($login, $password)) {
+            $this->logger->error('Failed to connect with ssh', compact(['login', 'host', 'port']));
+
+            throw new RuntimeException('SSH Login failed');
+        }
+        $this->logger->info('Connection to remote host established');
+
+        $root = data_get($stage, 'options.home_folder') ?: $this->resolveHomeDirectory();
+        $this->logger->debug("Using '$root' as root folder for sftp");
 
         // https://laravel.com/docs/filesystem#sftp-driver-configuration
         // https://flysystem.thephpleague.com/docs/adapter/sftp-v3
@@ -375,7 +387,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
             // Settings for basic authentication...
             'username' => $login,
-            'password' => $variables->get('DEPLOY_PASS'),
+            'password' => $password,
 
             // Settings for SSH key based authentication with encryption password...
             // 'privateKey' => '/path/to/private_key',
@@ -387,21 +399,16 @@ class ConfigureRepositoryJob implements ShouldQueue
 
             // Optional SFTP Settings...
             // 'maxTries' => 4,
-            'port' => intval($variables->get('SSH_PORT')),
+            'port' => intval($port),
             'root' => $root,
             'timeout' => 30,
             // 'useAgent' => true,
         ]);
-
-        // todo: try connection
-//        $this->logger->info('Checking connection to remote host');
-//        $this->remoteFilesystem->exists('dummy-file.txt');
-//        $this->logger->info('Connection to remote host established');
     }
 
     private function generateSshKeysOnLocalhost(): void
     {
-        File::ensureDirectoryExists("{$this->deployFolder}/ssh");
+        File::ensureDirectoryExists("{$this->deployFolder}/local_ssh");
 
         $identityFilePath = $this->state->getReplacements()->get('IDENTITY_FILE');
         $isIdentityKeyExists = File::exists($identityFilePath) || File::exists("{$identityFilePath}.pub");
@@ -649,8 +656,6 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         $login = $variables->get('DEPLOY_USER');
 
-        // todo: home directory
-        //      - resolve correct home directory
         return "/home/{$login}";
     }
 }

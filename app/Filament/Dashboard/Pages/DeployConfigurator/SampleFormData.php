@@ -29,6 +29,7 @@ class SampleFormData
     {
         return [
             'base_dir_pattern' => '/home/{{USER}}/web/{{HOST}}/public_html',
+            'home_folder' => '/home/{{USER}}',
             'bin_composer' => '/usr/bin/php8.2 /usr/bin/composer',
             'bin_php' => '/usr/bin/php8.2',
         ];
