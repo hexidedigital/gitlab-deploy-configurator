@@ -407,7 +407,7 @@ class ParseAccessSchema extends Forms\Components\Grid
 
                 $ssh->enableQuietMode();
 
-                $homeFolder = trim($ssh->exec('echo $HOME'), '/');
+                $homeFolder = rtrim($ssh->exec('echo $HOME'), '/');
                 /** @var Collection $paths */
                 $paths = str($ssh->exec('whereis php php8.2 composer'))
                     ->explode(PHP_EOL)
