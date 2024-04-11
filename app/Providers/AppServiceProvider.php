@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use Filament\Support\Assets\Js;
 use Filament\Support\Facades\FilamentAsset;
+use Illuminate\Foundation\ViteManifestNotFoundException;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 
@@ -22,8 +23,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        FilamentAsset::register([
-            Js::make('confetti-js', Vite::asset('resources/js/confetti.js')),
-        ]);
+        try {
+            FilamentAsset::register([
+                Js::make('confetti-js', Vite::asset('resources/js/confetti.js')),
+            ]);
+        } catch (ViteManifestNotFoundException) {
+            // ignore..
+        }
     }
 }
