@@ -5,6 +5,7 @@ namespace App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
 use App\Filament\Actions\Forms\Components\CopyAction;
 use App\Filament\Dashboard\Pages\DeployConfigurator;
 use App\GitLab\Data\ProjectData;
+use App\Jobs\ConfigureRepositoryJob;
 use Filament\Forms;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Alignment;
@@ -50,6 +51,10 @@ class ProjectStep extends Forms\Components\Wizard\Step
                     ->afterStateUpdated(function (Forms\Get $get, DeployConfigurator $livewire) {
                         $livewire->selectProject($get('projectInfo.selected_id'));
                     }),
+
+                Forms\Components\Toggle::make('projectInfo.is_test')
+                    ->label('Is testing project')
+                    ->visible(fn (Forms\Get $get) => $get('projectInfo.selected_id') == ConfigureRepositoryJob::TEST_PROJECT),
 
                 Forms\Components\Section::make('empty_repository')
                     ->visible(fn (DeployConfigurator $livewire) => $livewire->emptyRepo)

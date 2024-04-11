@@ -4,6 +4,7 @@ namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
 use App\Filament\Actions\Forms\Components\CopyAction;
 use App\Filament\Contacts\HasParserInfo;
+use App\Filament\Dashboard\Pages\DeployConfigurator;
 use App\Parser\DeployConfigBuilder;
 use Closure;
 use Exception;
@@ -393,7 +394,7 @@ class ParseAccessSchema extends Forms\Components\Grid
             ->disabled(fn (Forms\Get $get) => !$get('ssh_connected'))
             ->color(Color::Green)
             ->icon('heroicon-o-server')
-            ->action(function (Forms\Get $get, Forms\Set $set) {
+            ->action(function (Forms\Get $get, Forms\Set $set, DeployConfigurator $livewire) {
                 $server = $get('accessInfo.server');
 
                 $ssh = $this->connectToServer($server);
@@ -468,10 +469,12 @@ class ParseAccessSchema extends Forms\Components\Grid
 
                 $set('server_connection_result', $info);
 
+                $testFolder = data_get($livewire, 'data.projectInfo.is_test') ? '/test' : '';
+
                 // set server details options
                 $domain = str($server['domain'])->replace(['https://', 'http://'], '')->value();
-                $set('options.base_dir_pattern', "{$homeFolder}/web/{$domain}/public_html");
-                $set('options.home_folder', $homeFolder);
+                $set('options.base_dir_pattern', "{$homeFolder}/web/{$domain}/public_html" . $testFolder);
+                $set('options.home_folder', $homeFolder . $testFolder);
                 $set('options.bin_php', $phpInfo['bin']);
                 $set('options.bin_composer', "{$phpInfo['bin']} {$paths->get('composer')['bin']}");
 
