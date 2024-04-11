@@ -349,8 +349,8 @@ class ConfigureRepositoryJob implements ShouldQueue
             // rewrite working directory
             'PROJ_DIR' => $this->deployFolder,
 
-            'IDENTITY_FILE' => "{$this->deployFolder}/ssh/id_rsa",
-            'IDENTITY_FILE_PUB' => "{$this->deployFolder}/ssh/id_rsa.pub",
+            'IDENTITY_FILE' => "{$this->deployFolder}/local_ssh/id_rsa",
+            'IDENTITY_FILE_PUB' => "{$this->deployFolder}/local_ssh/id_rsa.pub",
         ]);
 
         // automatically enable CI/CD
@@ -445,6 +445,8 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function generateIdentityKey(string $identityFilePath, string $comment): void
     {
+        File::ensureDirectoryExists(File::dirname($identityFilePath));
+
         $command = ['ssh-keygen', '-t', 'rsa', '-N', '', "-f", $identityFilePath, '-C', $comment];
 
         $status = (new Process($command, $this->deployFolder))
