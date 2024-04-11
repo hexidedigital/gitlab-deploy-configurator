@@ -42,6 +42,9 @@ class ConfigureRepositoryJob implements ShouldQueue
     use SerializesModels;
     use WithGitlab;
 
+    /** moik.o / laravel 11 playground */
+    public const TEST_PROJECT = 689;
+
     public int $timeout = 120;
     public int $tries = 2;
 
@@ -49,7 +52,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private User $user;
     private array $testingProjects = [
-        689, // moik.o / laravel 11 playground
+        ConfigureRepositoryJob::TEST_PROJECT,
     ];
     private string $deployFolder;
     private DeployerState $state;

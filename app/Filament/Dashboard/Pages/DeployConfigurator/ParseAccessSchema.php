@@ -420,7 +420,7 @@ class ParseAccessSchema extends Forms\Components\Grid
                         }
 
                         if (Str::startsWith($binType, 'php')) {
-                            $all = $all->reject(fn($path) => Str::contains($path, ['-', '.gz', 'man']));
+                            $all = $all->reject(fn ($path) => Str::contains($path, ['-', '.gz', 'man']));
                         }
 
                         return [
@@ -461,7 +461,7 @@ class ParseAccessSchema extends Forms\Components\Grid
                     "php: ({$phpV})",
                     $phpVOutput,
                     "<hr>",
-                    "composer: (v{$composerV})",
+                    "composer: ({$composerV})",
                     $composerVOutput,
                     "<hr>",
                 ])->implode('<br>');
