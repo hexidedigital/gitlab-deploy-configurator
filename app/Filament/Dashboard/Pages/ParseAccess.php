@@ -62,6 +62,7 @@ class ParseAccess extends Page implements Forms\Contracts\HasForms, HasParserInf
                     $repeater->addable()->deletable();
                 })
                 ->showConfirmationCheckbox(false)
+                ->showMoreConfigurationSection(false)
                 ->showNameInput(),
         ])->statePath('data');
     }

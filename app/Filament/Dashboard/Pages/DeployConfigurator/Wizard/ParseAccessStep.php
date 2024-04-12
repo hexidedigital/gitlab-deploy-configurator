@@ -12,7 +12,7 @@ class ParseAccessStep extends Forms\Components\Wizard\Step
 {
     public static function make(string $label = ''): static
     {
-        return parent::make('Parse access');
+        return parent::make('Settings');
     }
 
     protected function setUp(): void
@@ -20,7 +20,7 @@ class ParseAccessStep extends Forms\Components\Wizard\Step
         parent::setUp();
 
         $this
-            ->icon('heroicon-o-key')
+            ->icon('heroicon-o-cog-6-tooth')
             ->afterValidation(function (HasParserInfo $livewire) {
                 $parsed = collect($livewire->getParsedStatuses());
 
