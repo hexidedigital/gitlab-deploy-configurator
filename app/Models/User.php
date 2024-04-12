@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Role;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Models\Contracts\HasAvatar;
 use Filament\Panel;
@@ -21,6 +22,7 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         'gitlab_token',
         'gitlab_id',
         'avatar_url',
+        'role',
     ];
 
     protected $hidden = [
@@ -34,6 +36,7 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'gitlab_token' => 'encrypted',
+            'role' => Role::class,
         ];
     }
 
