@@ -15,7 +15,7 @@ class SampleFormData
 
             MySQL:
             web-example-dev_db
-            web-example-dev_db
+            web-example-dev_user
             XXxxxxxXXXXXXxx
 
             SMTP:
