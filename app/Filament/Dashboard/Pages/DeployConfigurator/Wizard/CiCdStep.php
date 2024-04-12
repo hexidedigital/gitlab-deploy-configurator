@@ -4,6 +4,7 @@ namespace App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
 
 use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Filament\Forms;
+use Filament\Support\Colors\Color;
 use Gitlab\Exception\RuntimeException;
 use Illuminate\Support\HtmlString;
 
@@ -39,14 +40,22 @@ class CiCdStep extends Forms\Components\Wizard\Step
                     ->columnSpanFull()
                     ->reactive()
                     ->schema([
-                        Forms\Components\Checkbox::make('ci_cd_options.enabled_stages.prepare')
+                        Forms\Components\Toggle::make('ci_cd_options.enabled_stages.prepare')
                             ->label('Prepare (composer)')
+                            ->onColor(Color::Purple)
+                            ->onIcon('fab-php')
+                            ->offIcon('fab-php')
                             ->helperText('Installs vendor dependencies'),
-                        Forms\Components\Checkbox::make('ci_cd_options.enabled_stages.build')
+                        Forms\Components\Toggle::make('ci_cd_options.enabled_stages.build')
                             ->label('Build')
+                            ->onColor(Color::Green)
+                            ->onIcon('fab-node-js')
+                            ->offIcon('fab-node-js')
                             ->helperText('Builds assets'),
-                        Forms\Components\Checkbox::make('ci_cd_options.enabled_stages.deploy')
+                        Forms\Components\Toggle::make('ci_cd_options.enabled_stages.deploy')
                             ->label('Deploy')
+                            ->onColor(Color::Orange)
+                            ->onIcon('fab-gitlab')
                             ->helperText('Deploys to server')
                             ->disabled(),
                     ]),
