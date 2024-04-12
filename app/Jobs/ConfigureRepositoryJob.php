@@ -154,7 +154,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             // task 8 - insert custom aliases on remote host
             // create or append file content
             $this->logger->info('Step 8: Inserting custom aliases on remote host');
-            $this->insertCustomAliasesOnRemoteHost();
+            $this->insertCustomAliasesOnRemoteHost($stage);
 
             $this->logger->info("Stage '{$stageName}' processed");
 
@@ -198,7 +198,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
                 Action::make('mark_as_read')
                     ->label('Mark as read')
-                    ->markAsRead()
+                    ->markAsRead(),
             ])
             ->sendToDatabase($this->user);
     }
@@ -376,7 +376,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         $password = $variables->get('DEPLOY_PASS');
 
         $this->logger->info('Checking connection to remote host');
-        $ssh = new SSH2($host, ($port =$variables->get('SSH_PORT') ?: 22));
+        $ssh = new SSH2($host, ($port = $variables->get('SSH_PORT') ?: 22));
         if (!$ssh->login($login, $password)) {
             $this->logger->error('Failed to connect with ssh', compact(['login', 'host', 'port']));
 
@@ -649,10 +649,38 @@ class ConfigureRepositoryJob implements ShouldQueue
         return 'base64:' . base64_encode(Encrypter::generateKey(config('app.cipher')));
     }
 
-    // todo - task insertCustomAliasesOnRemoteHost
-    private function insertCustomAliasesOnRemoteHost(): void
+    private function insertCustomAliasesOnRemoteHost(array $stage): void
     {
-        //
+        $options = data_get($stage, 'options.bash_aliases');
+        if (!data_get($options, 'insert')) {
+            $this->logger->info('Custom aliases not enabled for stage');
+
+            return;
+        }
+
+        $this->logger->info('Inserting custom aliases on remote host');
+
+        $currentContent = $this->remoteFilesystem->fileExists('.bash_aliases')
+            ? $this->remoteFilesystem->get('.bash_aliases')
+            : '';
+
+        $content = str($currentContent);
+        $variableBag = $this->state->getGitlabVariablesBag();
+        $bashAliasesContent = view('bash_aliases', [
+            'artisanCompletion' => data_get($options, 'artisanCompletion') && !$content->contains(['complete -F', '_artisan']),
+            'artisanAliases' => data_get($options, 'artisanAliases') && !$content->contains(['alias artisan=', 'alias a=']),
+            'composerAlias' => data_get($options, 'composerAlias') && !$content->contains(['alias pcomopser=']),
+            'folderAliases' => data_get($options, 'folderAliases') && !$content->contains(['alias cur=']),
+            'BIN_COMPOSER' => $variableBag->get('BIN_COMPOSER'),
+            'BIN_PHP' => $variableBag->get('BIN_PHP'),
+            'DEPLOY_BASE_DIR' => $variableBag->get('DEPLOY_BASE_DIR'),
+        ])->render();
+
+        $newContent = trim($currentContent . PHP_EOL . PHP_EOL . trim($bashAliasesContent));
+
+        $this->remoteFilesystem->put('.bash_aliases', $newContent);
+
+        $this->logger->info('Custom aliases inserted');
     }
 
     public function isTestingProject(): bool

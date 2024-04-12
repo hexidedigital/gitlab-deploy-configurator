@@ -13,6 +13,7 @@ use Filament\Notifications\Notification;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\ActionSize;
 use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\IconSize;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use phpseclib3\Net\SSH2;
@@ -87,7 +88,7 @@ class ParseAccessSchema extends Forms\Components\Grid
                                 ])
                                 ->footerActionsAlignment(Alignment::End)
                                 ->collapsible()
-                                ->collapsed(fn (Forms\Get $get, HasParserInfo $livewire) => $livewire->getParseStatusForStage($get('name')))
+                                //->collapsed(fn (Forms\Get $get, HasParserInfo $livewire) => $livewire->getParseStatusForStage($get('name')))
                                 ->schema([
                                     Forms\Components\Textarea::make('access_input')
                                         ->label('Access data')
@@ -124,6 +125,8 @@ class ParseAccessSchema extends Forms\Components\Grid
                                 }),
 
                             $this->generateParsedResultSection(),
+
+                            $this->generateMoreOptionsSections(),
 
                             $this->generateDeployFileDownloadSection(),
                         ]),
@@ -237,6 +240,63 @@ class ParseAccessSchema extends Forms\Components\Grid
         };
     }
 
+    public function generateMoreOptionsSections(): Forms\Components\Section
+    {
+        return Forms\Components\Section::make('More options for stage')
+            ->visible(fn (Forms\Get $get, HasParserInfo $livewire) => $livewire->getParseStatusForStage($get('name')))
+            ->columnSpanFull()
+            ->collapsible()
+            // icon and color
+            ->icon('heroicon-o-cog')
+            ->iconColor(Color::Blue)
+            ->iconSize(IconSize::Large)
+            ->schema([
+                Forms\Components\Grid::make()->schema([
+                    Forms\Components\Toggle::make('options.bash_aliases.insert')
+                        ->label('Insert bash aliases')
+                        ->reactive()
+                        ->onColor(Color::Green)
+                        ->offColor(Color::Red)
+                        ->onIcon('heroicon-o-check-circle')
+                        ->offIcon('heroicon-o-x-circle')
+                        ->helperText('Insert bash aliases to `.bash_aliases` file'),
+
+                    Forms\Components\Fieldset::make('bash_aliases_options')
+                        ->label('Bash aliases')
+                        ->statePath('options.bash_aliases')
+                        ->visible(fn (Forms\Get $get) => $get('options.bash_aliases.insert'))
+                        ->columns(1)
+                        ->columnSpan(1)
+                        ->schema([
+                            Forms\Components\Toggle::make('artisanCompletion')
+                                ->label('Artisan completion')
+                                ->onColor(Color::Green)
+                                ->offColor(Color::Red)
+                                ->onIcon('heroicon-o-check-circle')
+                                ->offIcon('heroicon-o-x-circle'),
+                            Forms\Components\Toggle::make('artisanAliases')
+                                ->label('Artisan aliases')
+                                ->onColor(Color::Green)
+                                ->offColor(Color::Red)
+                                ->onIcon('heroicon-o-check-circle')
+                                ->offIcon('heroicon-o-x-circle'),
+                            Forms\Components\Toggle::make('composerAlias')
+                                ->label('Composer alias')
+                                ->onColor(Color::Green)
+                                ->offColor(Color::Red)
+                                ->onIcon('heroicon-o-check-circle')
+                                ->offIcon('heroicon-o-x-circle'),
+                            Forms\Components\Toggle::make('folderAliases')
+                                ->label('Folder aliases')
+                                ->onColor(Color::Green)
+                                ->offColor(Color::Red)
+                                ->onIcon('heroicon-o-check-circle')
+                                ->offIcon('heroicon-o-x-circle'),
+                        ]),
+                ])
+            ]);
+    }
+
     public function generateDeployFileDownloadSection(): Forms\Components\Section
     {
         return Forms\Components\Section::make(str('Generated **deploy** file (for current stage)')->markdown()->toHtmlString())
@@ -292,23 +352,13 @@ class ParseAccessSchema extends Forms\Components\Grid
             ->columns(3)
             ->schema(function (HasParserInfo $livewire) {
                 return [
-                    Forms\Components\Checkbox::make('access_is_correct')
-                        ->label('I agree that the access data is correct')
-                        ->accepted()
-                        ->visible($this->confirmationCheckboxVisible)
-                        ->columnSpanFull()
-                        ->validationMessages([
-                            'accepted' => 'Accept this field',
-                        ])
-                        ->required(),
-
                     Forms\Components\Grid::make()->schema([
-
                         Forms\Components\Grid::make(1)
                             ->columnSpan(1)
                             ->schema([
                                 $livewire->getServerFieldset(),
                             ]),
+
                         Forms\Components\Grid::make(1)
                             ->columnSpan(1)
                             ->schema([
@@ -342,6 +392,16 @@ class ParseAccessSchema extends Forms\Components\Grid
                                 ]),
                             ]),
                     ]),
+
+                    Forms\Components\Checkbox::make('access_is_correct')
+                        ->label('I agree that the access data is correct')
+                        ->accepted()
+                        ->visible($this->confirmationCheckboxVisible)
+                        ->columnSpanFull()
+                        ->validationMessages([
+                            'accepted' => 'Accept this field',
+                        ])
+                        ->required(),
                 ];
             });
     }

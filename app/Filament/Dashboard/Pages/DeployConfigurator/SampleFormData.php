@@ -32,6 +32,13 @@ class SampleFormData
             'home_folder' => '/home/{{USER}}',
             'bin_composer' => '/usr/bin/php8.2 /usr/bin/composer',
             'bin_php' => '/usr/bin/php8.2',
+            'bash_aliases' => [
+                'insert' => true,
+                'artisanCompletion' => true,
+                'artisanAliases' => true,
+                'composerAlias' => true,
+                'folderAliases' => true,
+            ],
         ];
     }
 
