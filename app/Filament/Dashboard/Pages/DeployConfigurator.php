@@ -77,7 +77,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
     /**
      * Action for last wizard step and form
      */
-    public function setupRepository(): void
+    public function setupRepository(DeployConfigBuilder $deployConfigBuilder): void
     {
         $this->form->validate();
 
@@ -93,7 +93,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
 
         $configurations = $this->form->getRawState();
 
-        $deployConfigBuilder = new DeployConfigBuilder();
         $deployConfigBuilder->parseConfiguration($configurations);
 
         dispatch(
@@ -150,14 +149,13 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
 
             Forms\Components\Section::make('Configure notes')
                 ->visible(fn () => $this->jobDispatched)
-                ->schema(function () {
+                ->schema(function (DeployConfigBuilder $deployConfigBuilder) {
                     if (!$this->jobDispatched) {
                         return [];
                     }
 
                     $configurations = $this->form->getRawState();
 
-                    $deployConfigBuilder = new DeployConfigBuilder();
                     $deployConfigBuilder->parseConfiguration($configurations);
 
                     $config = $deployConfigBuilder->buildDeployPrepareConfig();

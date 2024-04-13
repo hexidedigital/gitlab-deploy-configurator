@@ -15,11 +15,9 @@ class DeployConfigBuilder
     private ProjectDetails $projectDetails;
     private Collection $stagesList;
 
-    private array $accessInfo = [];
-    private array $notResolved = [];
-
-    public function __construct()
-    {
+    public function __construct(
+        private readonly AccessParser $accessParser,
+    ) {
         $this->stagesList = new Collection();
     }
 
@@ -42,16 +40,12 @@ class DeployConfigBuilder
 
     public function getAccessInfo(?string $stageName = null): ?array
     {
-        return $stageName
-            ? data_get($this->accessInfo, $stageName)
-            : $this->accessInfo;
+        return $this->accessParser->getAccessInfo($stageName);
     }
 
     public function getNotResolved(?string $stageName = null): array
     {
-        return $stageName
-            ? data_get($this->notResolved, $stageName, [])
-            : $this->notResolved;
+        return $this->accessParser->getNotResolved($stageName);
     }
 
     public function buildDeployPrepareConfig(?string $forceParseStageName = null): array
@@ -59,6 +53,7 @@ class DeployConfigBuilder
         $stages = $this->stagesList
             ->filter(function (array $stageConfig) use ($forceParseStageName) {
                 return ($stageConfig['can_be_parsed'] ?? false)
+                    || !empty($stageConfig['name'])
                     || $forceParseStageName === $stageConfig['name'];
             })
             ->map(function (array $stageConfig) {
@@ -76,7 +71,7 @@ class DeployConfigBuilder
                         'bin-composer' => data_get($stageConfig, 'options.bin_composer'),
                         'bin-php' => data_get($stageConfig, 'options.bin_php'),
                     ],
-                    ...collect($this->accessInfo[$stageName])
+                    ...collect($this->getAccessInfo($stageName))
                         ->only(['database', 'mail', 'server'])
                         ->all(),
                 ];
@@ -99,57 +94,9 @@ class DeployConfigBuilder
 
     public function parseInputForAccessPayload(?string $stageName, ?string $accessInput): self
     {
-        $this->notResolved[$stageName] = [];
-
-        $detected = [
-            'database' => false,
-            'mail' => false,
-            'server' => false,
-        ];
-
-        $this->accessInfo[$stageName] = collect(explode("\n", $accessInput))
-            ->chunkWhile(fn ($line) => !empty(trim($line)))
-            ->mapWithKeys(function (Collection $lines, int $chunkIndex) use ($stageName, &$detected) {
-                /** @var Collection $lines */
-                $lines = $lines->filter(fn ($line) => str($line)->squish()->isNotEmpty())->values();
-
-                $type = str($lines->first())->lower();
-
-                if ($type->startsWith('mysql') && !$detected['database']) {
-                    $detected['database'] = true;
-
-                    return [
-                        'database' => $this->parseDatabaseLines($lines),
-                    ];
-                }
-                if ($type->startsWith(['mail', 'smtp']) && !$detected['mail']) {
-                    $detected['mail'] = true;
-
-                    return [
-                        'mail' => $this->parseMailLines($lines),
-                    ];
-                }
-                if ($type->isMatch('/\w+\.\w+/') && !$detected['server']) {
-                    $detected['server'] = true;
-
-                    return [
-                        'server' => $this->parseServerLines($lines),
-                    ];
-                }
-
-                if ($lines->filter()->isNotEmpty()) {
-                    $this->notResolved[$stageName][] = [
-                        'chunk' => $chunkIndex + 1,
-                        'lines' => $lines,
-                    ];
-                }
-
-                return [
-                    'skip' => null,
-                ];
-            })
-            ->filter()
-            ->toArray();
+        if ($stageName) {
+            $this->accessParser->parseInputForAccessPayload($stageName, $accessInput);
+        }
 
         return $this;
     }
@@ -218,51 +165,6 @@ class DeployConfigBuilder
     {
         return $this->stagesList
             ->first(fn ($stage) => data_get($stage, 'name') === $stageName);
-    }
-
-    private function parseServerLines(Collection $lines): array
-    {
-        return $lines->filter()->skip(1)
-            ->values()
-            ->mapWithKeys(function ($line) {
-                preg_match("/(?<key>\\w+):\\s*(?<value>.*)/", $line, $match);
-
-                $key = str($match['key'])->trim()->lower()->value();
-
-                return [
-                    $key => trim($match['value']),
-                ];
-            })
-            ->toArray();
-    }
-
-    private function parseDatabaseLines(Collection $lines): array
-    {
-        $lines = $lines
-            ->skip(1)
-            ->values();
-
-        return [
-            'database' => $lines[0] ?? null,
-            'username' => $lines[1] ?? null,
-            'password' => $lines[2] ?? null,
-        ];
-    }
-
-    private function parseMailLines(Collection $lines): array
-    {
-        return $lines->filter()->skip(1)
-            ->values()
-            ->mapWithKeys(function ($line) {
-                preg_match("/(?<key>\\w+):\\s*(?<value>.*)/", $line, $match);
-
-                $key = str($match['key'])->trim()->lower()->value();
-
-                return [
-                    $key => trim($match['value']),
-                ];
-            })
-            ->toArray();
     }
 
     private function retrieveProjectId(): int

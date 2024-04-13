@@ -67,7 +67,7 @@ class ConfigureRepositoryJob implements ShouldQueue
     ) {
     }
 
-    public function handle(): void
+    public function handle(DeployConfigBuilder $deployConfigBuilder): void
     {
         $this->logger = Log::channel('daily');
 
@@ -97,7 +97,6 @@ class ConfigureRepositoryJob implements ShouldQueue
         $this->logger->info('Prepare general configurations...');
 
         // prepare general configurations
-        $deployConfigBuilder = new DeployConfigBuilder();
         $deployConfigBuilder->setStagesList($this->deployConfigurations['stages']);
         $deployConfigBuilder->setProjectDetails($this->projectDetails);
 

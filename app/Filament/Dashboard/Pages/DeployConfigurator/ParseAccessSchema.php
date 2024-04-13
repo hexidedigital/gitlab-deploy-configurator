@@ -193,10 +193,9 @@ class ParseAccessSchema extends Forms\Components\Grid
                         ->color(Color::Indigo)
                         ->icon('heroicon-s-arrow-down-tray')
                         ->label(str('Download `deploy-prepare.yml`')->markdown()->toHtmlString())
-                        ->action(function () {
+                        ->action(function (DeployConfigBuilder $deployConfigBuilder) {
                             $configurations = $this->retrieveConfigurations();
 
-                            $deployConfigBuilder = new DeployConfigBuilder();
                             $deployConfigBuilder->parseConfiguration($configurations);
 
                             $deployConfigBuilder->buildDeployPrepareConfig();
@@ -609,7 +608,7 @@ class ParseAccessSchema extends Forms\Components\Grid
     protected function tryToParseAccessInput(string $stageName, ?string $accessInput): ?DeployConfigBuilder
     {
         try {
-            return (new DeployConfigBuilder())->parseInputForAccessPayload($stageName, $accessInput);
+            return resolve(DeployConfigBuilder::class)->parseInputForAccessPayload($stageName, $accessInput);
         } catch (Throwable $e) {
             Notification::make()->title('Invalid content')->body($e->getMessage())->danger()->send();
 
