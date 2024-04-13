@@ -33,6 +33,7 @@ use phpseclib3\Net\SSH2;
 use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Symfony\Component\Process\Process;
+use Throwable;
 
 class ConfigureRepositoryJob implements ShouldQueue
 {
@@ -114,53 +115,25 @@ class ConfigureRepositoryJob implements ShouldQueue
             // prepare configurations for stage
             $this->selectStage($stageName);
 
-            $this->initSftpClient($stage);
+            try {
+                $this->initSftpClient($stage);
 
-            // task 1 - generate ssh keys on localhost
-            $this->logger->info('Step 1: Generating SSH keys on localhost');
-            $this->generateSshKeysOnLocalhost();
+                $this->executeTasksForStage($stageName, $deployConfigBuilder, $stage);
 
-            // task 2 - copy ssh keys on remote host
-            // get content pub key and put to auth_keys on server
-            $this->logger->info('Step 2: Copying SSH keys on remote host');
-            $this->copySshKeysOnRemoteHost();
+                $this->logger->info("Stage '{$stageName}' processed");
 
-            // task 3 - generate ssh keys on remote host
-            // fetch existing keys, or generate new one locally (specify user and login) or on remove (need execute)
-            $this->logger->info('Step 3: Generating SSH keys on remote host');
-            $this->generateSshKeysOnRemoteHost($stageName);
+                $this->sendSuccessNotification($stageName);
+            } catch (Throwable $exception) {
+                report($exception);
 
-            // task 4 - create project variables on gitlab
-            // create and configure gitlab variables
-            $this->logger->info('Step 4: Creating project variables on GitLab');
-            $this->createProjectVariables();
+                $this->logger->error('Failed to process stage', [
+                    'exception' => $exception->getMessage(),
+                ]);
 
-            // task 5 - add gitlab to known hosts on remote host
-            // append content to known_hosts file
-            $this->logger->info('Step 5: Adding GitLab to known hosts on remote host');
-            $this->addGitlabToKnownHostsOnRemoteHost();
-
-            // task 6 - prepare and copy dot env file for remote
-            // copy file to remote (create folder)
-            $this->logger->info('Step 6: Preparing and copying .env file for remote');
-            $this->prepareAndCopyDotEnvFileForRemote();
-
-            // task 7 - push branch and trigger pipeline (run first deploy command)
-            // create deploy branch with new files in repository
-            $this->logger->info('Step 7: Creating commit with config files');
-            $this->createCommitWithConfigFiles($stageName, $deployConfigBuilder);
-
-            // task 8 - insert custom aliases on remote host
-            // create or append file content
-            $this->logger->info('Step 8: Inserting custom aliases on remote host');
-            $this->insertCustomAliasesOnRemoteHost($stage);
-
-            $this->logger->info("Stage '{$stageName}' processed");
-
-            $this->sendSuccessNotification($stageName);
+                $this->release(60 * 5);
+            }
         }
 
-        /* todo - mock */
         if ($this->isTestingProject()) {
             $this->release(60 * 2);
         }
@@ -237,7 +210,49 @@ class ConfigureRepositoryJob implements ShouldQueue
         $this->logger->debug("Repository '{$this->gitlabProject->name}' cleaned up");
     }
 
-    private function createCommitWithConfigFiles(string $stageName, DeployConfigBuilder $deployConfigBuilder): void
+    private function executeTasksForStage(string $stageName, DeployConfigBuilder $deployConfigBuilder, array $stage): void
+    {
+        // task 1 - generate ssh keys on localhost
+        $this->logger->info('Step 1: Generating SSH keys on localhost');
+        $this->taskGenerateSshKeysOnLocalhost();
+
+        // task 2 - copy ssh keys on remote host
+        // get content pub key and put to auth_keys on server
+        $this->logger->info('Step 2: Copying SSH keys on remote host');
+        $this->taskCopySshKeysOnRemoteHost();
+
+        // task 3 - generate ssh keys on remote host
+        // fetch existing keys, or generate new one locally (specify user and login) or on remove (need execute)
+        $this->logger->info('Step 3: Generating SSH keys on remote host');
+        $this->taskGenerateSshKeysOnRemoteHost($stageName);
+
+        // task 4 - create project variables on gitlab
+        // create and configure gitlab variables
+        $this->logger->info('Step 4: Creating project variables on GitLab');
+        $this->taskCreateProjectVariables();
+
+        // task 5 - add gitlab to known hosts on remote host
+        // append content to known_hosts file
+        $this->logger->info('Step 5: Adding GitLab to known hosts on remote host');
+        $this->taskAddGitlabToKnownHostsOnRemoteHost();
+
+        // task 6 - prepare and copy dot env file for remote
+        // copy file to remote (create folder)
+        $this->logger->info('Step 6: Preparing and copying .env file for remote');
+        $this->taskPrepareAndCopyDotEnvFileForRemote();
+
+        // task 7 - push branch and trigger pipeline (run first deploy command)
+        // create deploy branch with new files in repository
+        $this->logger->info('Step 7: Creating commit with config files');
+        $this->taskCreateCommitWithConfigFiles($stageName, $deployConfigBuilder);
+
+        // task 8 - insert custom aliases on remote host
+        // create or append file content
+        $this->logger->info('Step 8: Inserting custom aliases on remote host');
+        $this->taskInsertCustomAliasesOnRemoteHost($stage);
+    }
+
+    private function taskCreateCommitWithConfigFiles(string $stageName, DeployConfigBuilder $deployConfigBuilder): void
     {
         // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
         $actions = collect([
@@ -413,7 +428,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         ]);
     }
 
-    private function generateSshKeysOnLocalhost(): void
+    private function taskGenerateSshKeysOnLocalhost(): void
     {
         File::ensureDirectoryExists("{$this->deployFolder}/local_ssh");
 
@@ -462,7 +477,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         }
     }
 
-    private function createProjectVariables(): void
+    private function taskCreateProjectVariables(): void
     {
         $variableBag = $this->state->getGitlabVariablesBag();
 
@@ -501,7 +516,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         }
     }
 
-    private function copySshKeysOnRemoteHost(): void
+    private function taskCopySshKeysOnRemoteHost(): void
     {
         $identityFilePath = $this->state->getReplacements()->get('IDENTITY_FILE_PUB');
         $publicKey = File::get($identityFilePath);
@@ -518,7 +533,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         }
     }
 
-    private function generateSshKeysOnRemoteHost(string $stageName): void
+    private function taskGenerateSshKeysOnRemoteHost(string $stageName): void
     {
         $privateKeyPath = '.ssh/id_rsa';
         $publicKeyPath = "{$privateKeyPath}.pub";
@@ -545,7 +560,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         );
     }
 
-    private function addGitlabToKnownHostsOnRemoteHost(): void
+    private function taskAddGitlabToKnownHostsOnRemoteHost(): void
     {
         $gitlabPublicKey = $this->getGitlabPublicKey();
 
@@ -577,7 +592,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         return $scanResult;
     }
 
-    private function prepareAndCopyDotEnvFileForRemote(): void
+    private function taskPrepareAndCopyDotEnvFileForRemote(): void
     {
         $envExampleFileContent = $this->getFileContent($this->gitlabProject, '.env.example');
 
@@ -648,7 +663,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         return 'base64:' . base64_encode(Encrypter::generateKey(config('app.cipher')));
     }
 
-    private function insertCustomAliasesOnRemoteHost(array $stage): void
+    private function taskInsertCustomAliasesOnRemoteHost(array $stage): void
     {
         $options = data_get($stage, 'options.bash_aliases');
         if (!data_get($options, 'insert')) {
