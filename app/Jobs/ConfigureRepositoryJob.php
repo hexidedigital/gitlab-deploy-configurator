@@ -3,11 +3,13 @@
 namespace App\Jobs;
 
 use App\DeployConfigurator\DeployConfigBuilder;
+use App\Events\DeployConfigurationJobFailedEvent;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
 use App\GitLab\Data\ProjectData;
 use App\GitLab\Deploy\Data\CiCdOptions;
 use App\GitLab\Deploy\Data\ProjectDetails;
 use App\Models\User;
+use App\Notifications\UserTelegramNotification;
 use Exception;
 use Filament\Notifications\Actions\Action;
 use Filament\Notifications\Notification;
@@ -25,10 +27,12 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Log\Logger;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use NotificationChannels\Telegram\TelegramMessage;
 use phpseclib3\Net\SSH2;
 use Psr\Log\LoggerInterface;
 use RuntimeException;
@@ -65,6 +69,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         public ProjectDetails $projectDetails,
         public CiCdOptions $ciCdOptions,
         public array $deployConfigurations,
+        public Carbon $startAt,
     ) {
     }
 
@@ -91,7 +96,10 @@ class ConfigureRepositoryJob implements ShouldQueue
         $this->gitlabProject = $project;
         $this->user = User::findOrFail($this->userId);
 
-        $this->cleanUpRepository();
+        $this->user->notify(new UserTelegramNotification(TelegramMessage::create()->line("We started configuring '{$this->gitlabProject->name}' repository...")));
+
+        // todo mock
+        //$this->cleanUpRepository();
 
         $this->prepareWorkingDirectoryForProjectSetup();
 
@@ -124,24 +132,36 @@ class ConfigureRepositoryJob implements ShouldQueue
 
                 $this->sendSuccessNotification($stageName);
             } catch (Throwable $exception) {
-                report($exception);
-
-                $this->logger->error('Failed to process stage', [
+                $this->logger->error('Failed to process stage ' . $stageName, [
                     'exception' => $exception->getMessage(),
                 ]);
 
-                $this->release(60 * 5);
+                $this->failed($exception);
+
+                throw $exception;
             }
         }
 
-        if ($this->isTestingProject()) {
+        $gitlabPipelineUrl = "https://gitlab.hexide-digital.com/{$this->gitlabProject->path_with_namespace}/-/pipelines";
+        $finishAt = now();
+        $this->user->notify(
+            new UserTelegramNotification(
+                TelegramMessage::create()
+                    ->line("We have finished configuring '{$this->gitlabProject->name}' repository.")
+                    ->line('Time elapsed: ' . $finishAt->shortAbsoluteDiffForHumans($this->startAt))
+                    ->button('GitLab pipelines', $gitlabPipelineUrl)
+            )
+        );
+
+        if ($this->isTestingProject() && empty($exception)) {
             $this->release(60 * 2);
         }
     }
 
-    public function failed(Exception $exception): void
+    public function failed(Throwable $exception): void
     {
         $this->logger = Log::channel('daily');
+        $this->user = User::findOrFail($this->userId);
 
         $this->logger->error('Failed configuring repository', [
             'exception' => $exception->getMessage(),
@@ -149,11 +169,24 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         report($exception);
 
-        $this->fail($exception);
+        DeployConfigurationJobFailedEvent::dispatch($this->user, $this->gitlabProject, $exception);
     }
 
     private function sendSuccessNotification(string $stageName): void
     {
+        $gitlabPipelineUrl = "https://gitlab.hexide-digital.com/{$this->gitlabProject->path_with_namespace}/-/pipelines";
+
+        $this->user->notify(
+            new UserTelegramNotification(
+                TelegramMessage::create()
+                    ->line('Your repository has been configured successfully.')
+                    ->line('Project: ' . $this->gitlabProject->name)
+                    ->line('Stage: ' . $stageName)
+                    ->line('Time: ' . now()->format('Y-m-d H:i:s'))
+                    ->button("Open {$this->state->getStage()->server->domain}", $this->state->getStage()->server->domain)
+            )
+        );
+
         $this->logger->info("Repository '{$this->gitlabProject->name}' configured successfully");
 
         Notification::make()
@@ -166,13 +199,12 @@ class ConfigureRepositoryJob implements ShouldQueue
                     ->label('View in GitLab')
                     ->icon('feathericon-gitlab')
                     ->button()
-                    ->url("https://gitlab.hexide-digital.com/{$this->gitlabProject->path_with_namespace}/-/pipelines", shouldOpenInNewTab: true),
+                    ->url($gitlabPipelineUrl, shouldOpenInNewTab: true),
 
                 Action::make('mark_as_read')
                     ->label('Mark as read')
                     ->markAsRead(),
-            ])
-            ->sendToDatabase($this->user);
+            ])->sendToDatabase($this->user);
     }
 
     private function cleanUpRepository(): void

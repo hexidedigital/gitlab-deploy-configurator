@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "88ac4146ac7e814433f238162f85de66",
+    "content-hash": "f99967ac14af03226a5a684913b87b24",
     "packages": [
         {
             "name": "anourvalar/eloquent-serialize",
@@ -71,6 +71,60 @@
                 "source": "https://github.com/AnourValar/eloquent-serialize/tree/1.2.22"
             },
             "time": "2024-03-22T12:56:46+00:00"
+        },
+        {
+            "name": "bacon/bacon-qr-code",
+            "version": "2.0.8",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/Bacon/BaconQrCode.git",
+                "reference": "8674e51bb65af933a5ffaf1c308a660387c35c22"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/Bacon/BaconQrCode/zipball/8674e51bb65af933a5ffaf1c308a660387c35c22",
+                "reference": "8674e51bb65af933a5ffaf1c308a660387c35c22",
+                "shasum": ""
+            },
+            "require": {
+                "dasprid/enum": "^1.0.3",
+                "ext-iconv": "*",
+                "php": "^7.1 || ^8.0"
+            },
+            "require-dev": {
+                "phly/keep-a-changelog": "^2.1",
+                "phpunit/phpunit": "^7 | ^8 | ^9",
+                "spatie/phpunit-snapshot-assertions": "^4.2.9",
+                "squizlabs/php_codesniffer": "^3.4"
+            },
+            "suggest": {
+                "ext-imagick": "to generate QR code images"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "BaconQrCode\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "BSD-2-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Ben Scholzen 'DASPRiD'",
+                    "email": "mail@dasprids.de",
+                    "homepage": "https://dasprids.de/",
+                    "role": "Developer"
+                }
+            ],
+            "description": "BaconQrCode is a QR code generator for PHP.",
+            "homepage": "https://github.com/Bacon/BaconQrCode",
+            "support": {
+                "issues": "https://github.com/Bacon/BaconQrCode/issues",
+                "source": "https://github.com/Bacon/BaconQrCode/tree/2.0.8"
+            },
+            "time": "2022-12-07T17:46:57+00:00"
         },
         {
             "name": "blade-ui-kit/blade-heroicons",
@@ -577,6 +631,151 @@
                 }
             ],
             "time": "2024-01-21T14:53:34+00:00"
+        },
+        {
+            "name": "dasprid/enum",
+            "version": "1.0.5",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/DASPRiD/Enum.git",
+                "reference": "6faf451159fb8ba4126b925ed2d78acfce0dc016"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/DASPRiD/Enum/zipball/6faf451159fb8ba4126b925ed2d78acfce0dc016",
+                "reference": "6faf451159fb8ba4126b925ed2d78acfce0dc016",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.1 <9.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^7 | ^8 | ^9",
+                "squizlabs/php_codesniffer": "*"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "DASPRiD\\Enum\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "BSD-2-Clause"
+            ],
+            "authors": [
+                {
+                    "name": "Ben Scholzen 'DASPRiD'",
+                    "email": "mail@dasprids.de",
+                    "homepage": "https://dasprids.de/",
+                    "role": "Developer"
+                }
+            ],
+            "description": "PHP 7.1 enum implementation",
+            "keywords": [
+                "enum",
+                "map"
+            ],
+            "support": {
+                "issues": "https://github.com/DASPRiD/Enum/issues",
+                "source": "https://github.com/DASPRiD/Enum/tree/1.0.5"
+            },
+            "time": "2023-08-25T16:18:39+00:00"
+        },
+        {
+            "name": "defstudio/telegraph",
+            "version": "v1.43.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/defstudio/telegraph.git",
+                "reference": "6815eec06031c316c3e647930e00c9bf1fb83127"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/defstudio/telegraph/zipball/6815eec06031c316c3e647930e00c9bf1fb83127",
+                "reference": "6815eec06031c316c3e647930e00c9bf1fb83127",
+                "shasum": ""
+            },
+            "require": {
+                "illuminate/contracts": "^10.0 | ^11.0",
+                "illuminate/http": "^10.0 | ^11.0",
+                "illuminate/support": "^10.0 | ^11.0",
+                "php": "^8.1",
+                "spatie/laravel-package-tools": "^1.12.1"
+            },
+            "require-dev": {
+                "defstudio/pest-plugin-laravel-expectations": "^v2.1.2",
+                "ext-sqlite3": "*",
+                "friendsofphp/php-cs-fixer": "^v3.13.0",
+                "guzzlehttp/guzzle": "^7.5.0",
+                "larastan/larastan": "^1.0.4 | ^2.4.0",
+                "nunomaduro/collision": "^v7.10.0 | ^v8.1.1",
+                "orchestra/testbench": "^8.0 | ^9.0",
+                "pestphp/pest": "^v2.34.2",
+                "pestphp/pest-plugin-laravel": "^v2.3.0",
+                "pestphp/pest-plugin-mock": "^v2.0.0",
+                "phpstan/extension-installer": "^1.2.0",
+                "phpstan/phpstan-deprecation-rules": "^1.0.0",
+                "phpstan/phpstan-phpunit": "^1.2.2",
+                "spatie/laravel-ray": "^1.31.0",
+                "spatie/pest-plugin-snapshots": "^2.1.0",
+                "spatie/pest-plugin-test-time": "^2.1.0",
+                "spatie/x-ray": "dev-main"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "DefStudio\\Telegraph\\TelegraphServiceProvider"
+                    ],
+                    "aliases": {
+                        "Telegraph": "DefStudio\\Telegraph\\Facades\\Telegraph"
+                    }
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "DefStudio\\Telegraph\\": "src",
+                    "DefStudio\\Telegraph\\Database\\Factories\\": "database/factories"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Fabio Ivona",
+                    "email": "fabio.ivona@defstudio.it",
+                    "role": "Developer"
+                }
+            ],
+            "description": "A laravel facade to interact with Telegram Bots",
+            "homepage": "https://github.com/defstudio/telegraph",
+            "keywords": [
+                "defstudio",
+                "laravel",
+                "telegraph"
+            ],
+            "support": {
+                "issues": "https://github.com/defstudio/telegraph/issues",
+                "source": "https://github.com/defstudio/telegraph/tree/v1.43.2"
+            },
+            "funding": [
+                {
+                    "url": "https://paypal.me/bdmstore",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/defstudio",
+                    "type": "github"
+                },
+                {
+                    "url": "https://github.com/fabio-ivona",
+                    "type": "github"
+                }
+            ],
+            "time": "2024-04-11T15:43:08+00:00"
         },
         {
             "name": "deployer/deployer",
@@ -2735,6 +2934,79 @@
                 "source": "https://github.com/kirschbaum-development/eloquent-power-joins/tree/3.5.2"
             },
             "time": "2024-03-20T10:23:27+00:00"
+        },
+        {
+            "name": "laravel-notification-channels/telegram",
+            "version": "5.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/laravel-notification-channels/telegram.git",
+                "reference": "d647f0ab28c7717ef85c0c843e95f25b1c7dc498"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/laravel-notification-channels/telegram/zipball/d647f0ab28c7717ef85c0c843e95f25b1c7dc498",
+                "reference": "d647f0ab28c7717ef85c0c843e95f25b1c7dc498",
+                "shasum": ""
+            },
+            "require": {
+                "ext-json": "*",
+                "guzzlehttp/guzzle": "^7.2",
+                "illuminate/contracts": "^10 || ^11.0",
+                "illuminate/notifications": "^10 || ^11.0",
+                "illuminate/support": "^10 || ^11.0",
+                "php": "^8.1"
+            },
+            "require-dev": {
+                "larastan/larastan": "^2.9",
+                "mockery/mockery": "^1.4.4",
+                "orchestra/testbench": "^8.0 || ^9.0",
+                "pestphp/pest": "^2.34",
+                "pestphp/pest-plugin-laravel": "^2.3",
+                "phpstan/extension-installer": "^1.2",
+                "phpstan/phpstan-deprecation-rules": "^1.1",
+                "phpstan/phpstan-phpunit": "^1.3",
+                "phpunit/phpunit": "^10.5 || ^11.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "NotificationChannels\\Telegram\\TelegramServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "NotificationChannels\\Telegram\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Irfaq Syed",
+                    "email": "github@lukonet.net",
+                    "homepage": "https://lukonet.com",
+                    "role": "Developer"
+                }
+            ],
+            "description": "Telegram Notifications Channel for Laravel",
+            "homepage": "https://github.com/laravel-notification-channels/telegram",
+            "keywords": [
+                "laravel",
+                "notification",
+                "telegram",
+                "telegram notification",
+                "telegram notifications channel"
+            ],
+            "support": {
+                "issues": "https://github.com/laravel-notification-channels/telegram/issues",
+                "source": "https://github.com/laravel-notification-channels/telegram/tree/5.0.0"
+            },
+            "time": "2024-03-12T05:47:13+00:00"
         },
         {
             "name": "laravel/framework",
@@ -6571,6 +6843,74 @@
                 }
             ],
             "time": "2024-02-26T18:08:49+00:00"
+        },
+        {
+            "name": "simplesoftwareio/simple-qrcode",
+            "version": "4.2.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/SimpleSoftwareIO/simple-qrcode.git",
+                "reference": "916db7948ca6772d54bb617259c768c9cdc8d537"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/SimpleSoftwareIO/simple-qrcode/zipball/916db7948ca6772d54bb617259c768c9cdc8d537",
+                "reference": "916db7948ca6772d54bb617259c768c9cdc8d537",
+                "shasum": ""
+            },
+            "require": {
+                "bacon/bacon-qr-code": "^2.0",
+                "ext-gd": "*",
+                "php": ">=7.2|^8.0"
+            },
+            "require-dev": {
+                "mockery/mockery": "~1",
+                "phpunit/phpunit": "~9"
+            },
+            "suggest": {
+                "ext-imagick": "Allows the generation of PNG QrCodes.",
+                "illuminate/support": "Allows for use within Laravel."
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "SimpleSoftwareIO\\QrCode\\QrCodeServiceProvider"
+                    ],
+                    "aliases": {
+                        "QrCode": "SimpleSoftwareIO\\QrCode\\Facades\\QrCode"
+                    }
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "SimpleSoftwareIO\\QrCode\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Simple Software LLC",
+                    "email": "support@simplesoftware.io"
+                }
+            ],
+            "description": "Simple QrCode is a QR code generator made for Laravel.",
+            "homepage": "https://www.simplesoftware.io/#/docs/simple-qrcode",
+            "keywords": [
+                "Simple",
+                "generator",
+                "laravel",
+                "qrcode",
+                "wrapper"
+            ],
+            "support": {
+                "issues": "https://github.com/SimpleSoftwareIO/simple-qrcode/issues",
+                "source": "https://github.com/SimpleSoftwareIO/simple-qrcode/tree/4.2.0"
+            },
+            "time": "2021-02-08T20:43:55+00:00"
         },
         {
             "name": "spatie/color",

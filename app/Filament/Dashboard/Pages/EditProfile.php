@@ -3,20 +3,40 @@
 namespace App\Filament\Dashboard\Pages;
 
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
+use App\Notifications\ProfileOpenedNotification;
+use App\Notifications\UserTelegramNotification;
+use DefStudio\Telegraph\Models\TelegraphBot;
 use Filament\Forms\Components\Component;
 use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Filament\Notifications\Notification;
+use Filament\Support\Colors\Color;
 use Gitlab\Exception\RuntimeException;
 use GrahamCampbell\GitLab\GitLabManager;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
+use NotificationChannels\Telegram\TelegramMessage;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class EditProfile extends \Filament\Pages\Auth\EditProfile
 {
     use WithGitlab;
+
+    public ?string $qr_link = null;
+    public bool $canConnectTelegram = false;
+
+    public function mount(): void
+    {
+        $this->fillForm();
+
+        $this->canConnectTelegram = empty(Auth::user()->telegram_id) || !Auth::user()->is_telegram_enabled;
+    }
 
     public function form(Form $form): Form
     {
@@ -28,6 +48,13 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
                 $this->getPasswordFormComponent(),
                 $this->getPasswordConfirmationFormComponent(),
                 Hidden::make('avatar_url'),
+
+                $this->getTelegramToggleComponent(),
+
+                Placeholder::make('qr_code')
+                    ->label('Scan to join Telegram')
+                    ->visible(fn () => $this->canConnectTelegram && $this->qr_link)
+                    ->content(fn () => str(QrCode::size(300)->generate($this->qr_link))->toHtmlString()),
             ]);
     }
 
@@ -106,5 +133,60 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
             })
             ->maxLength(255)
             ->unique(ignoreRecord: true);
+    }
+
+    protected function getTelegramToggleComponent(): Toggle
+    {
+        return Toggle::make('is_telegram_enabled')
+            ->label('Integration with Telegram')
+            ->hintIcon('heroicon-o-question-mark-circle')
+            ->hintIconTooltip('Allows to send Deployer events to your Telegram account')
+            ->onColor(Color::Blue)
+            ->live()
+            ->afterStateUpdated(function ($state, Set $set) {
+                if (!$state) {
+                    $this->canConnectTelegram = true;
+
+                    Notification::make()
+                        ->title('Telegram integration is disabled')
+                        ->body('You no longer receive Deployer events in your Telegram account')
+                        ->info()
+                        ->send();
+
+                    Auth::user()->update([
+                        'is_telegram_enabled' => $state,
+                    ]);
+
+                    return;
+                }
+
+                $url = TelegraphBot::firstWhere('name', 'DeployConfigurationBot')?->url();
+                if (!$url) {
+                    Notification::make()
+                        ->title('Telegram integration')
+                        ->body('The Telegram bot is not available')
+                        ->danger()
+                        ->send();
+
+                    $set('is_telegram_enabled', false);
+
+                    return;
+                }
+
+                $token = Str::random();
+                $this->qr_link = "{$url}?start={$token}";
+
+                Auth::user()->update([
+                    'telegram_token' => $token,
+                ]);
+
+                Notification::make()
+                    ->title('Telegram integration')
+                    ->body('Scan the QR code to connect your Telegram account')
+                    ->info()
+                    ->send();
+
+                $set('is_telegram_enabled', false);
+            });
     }
 }

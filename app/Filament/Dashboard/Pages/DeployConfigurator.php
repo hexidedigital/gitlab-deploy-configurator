@@ -14,6 +14,7 @@ use App\GitLab\Deploy\Data\CiCdOptions;
 use App\GitLab\Deploy\Data\ProjectDetails;
 use App\Jobs\ConfigureRepositoryJob;
 use App\Models\User;
+use App\Notifications\UserTelegramNotification;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
 use Filament\Facades\Filament;
@@ -25,6 +26,8 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\MaxWidth;
+use Illuminate\Support\Carbon;
+use NotificationChannels\Telegram\TelegramMessage;
 
 /**
  * @property Form $form
@@ -50,6 +53,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
     public bool $emptyRepo = false;
     public bool $isLaravelRepository = false;
     public bool $jobDispatched = false;
+    public Carbon $openedAt;
 
     public function getMaxContentWidth(): MaxWidth|string|null
     {
@@ -72,6 +76,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
         if ($user->gitlab_id == 89) {
             $this->selectProject(ConfigureRepositoryJob::TEST_PROJECT);
         }
+
+        $this->openedAt = now();
     }
 
     /**
@@ -95,20 +101,28 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
 
         $deployConfigBuilder->parseConfiguration($configurations);
 
+        /** @var User $user */
+        $user = Filament::auth()->user();
+
         dispatch(
             new ConfigureRepositoryJob(
-                userId: Filament::auth()->user()->getAuthIdentifier(),
-                projectDetails: ProjectDetails::makeFromArray($this->data['projectInfo']),
+                userId: $user->getAuthIdentifier(),
+                projectDetails: $project = ProjectDetails::makeFromArray($this->data['projectInfo']),
                 ciCdOptions: new CiCdOptions(
                     template_version: $this->data['ci_cd_options']['template_version'],
                     enabled_stages: $this->data['ci_cd_options']['enabled_stages'],
                     node_version: $this->data['ci_cd_options']['node_version'],
                 ),
                 deployConfigurations: $deployConfigBuilder->buildDeployPrepareConfig(),
+                startAt: $this->openedAt,
             )
         );
 
         $this->fill(['jobDispatched' => true]);
+
+        $user->notify(new UserTelegramNotification(TelegramMessage::create(
+            "Repository '{$project->name}' setup started. You will be notified when it is done."
+        )));
 
         Notification::make()
             ->success()

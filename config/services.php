@@ -8,6 +8,10 @@ return [
         'deploy_token' => env('GITLAB_DEPLOY_TOKEN', 'xxxx_githubOathToken_xxxx'),
     ],
 
+    'telegram-bot-api' => [
+        'token' => env('TELEGRAM_BOT_TOKEN', 'YOUR BOT TOKEN HERE'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services

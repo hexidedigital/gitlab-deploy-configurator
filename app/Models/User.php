@@ -23,6 +23,10 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         'gitlab_id',
         'avatar_url',
         'role',
+        'is_telegram_enabled',
+        'telegram_id',
+        'telegram_user',
+        'telegram_token',
     ];
 
     protected $hidden = [
@@ -37,12 +41,18 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
             'password' => 'hashed',
             'gitlab_token' => 'encrypted',
             'role' => Role::class,
+            'telegram_user' => 'array',
         ];
     }
 
     public function hasMinAccess(Role $role): bool
     {
         return !is_null($this->role) && $this->role->hasAccess($role);
+    }
+
+    public function canRecieveTelegramMessage(): bool
+    {
+        return $this->is_telegram_enabled && $this->telegram_id;
     }
 
     public function canAccessPanel(Panel $panel): bool
