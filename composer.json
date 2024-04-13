@@ -11,8 +11,10 @@
         "graham-campbell/gitlab": "^7.5",
         "hexide-digital/gitlab-deploy": "^1.4",
         "laravel/framework": "^11.0",
+        "laravel/telescope": "^5.0",
         "laravel/tinker": "^2.9",
         "league/flysystem-sftp-v3": "^3.26",
+        "opcodesio/log-viewer": "^3.8",
         "owenvoke/blade-fontawesome": "^2.6",
         "spatie/laravel-login-link": "^1.2",
         "symfony/yaml": "^7.0"

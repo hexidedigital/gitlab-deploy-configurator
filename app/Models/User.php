@@ -40,6 +40,11 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         ];
     }
 
+    public function hasMinAccess(Role $role): bool
+    {
+        return !is_null($this->role) && $this->role->hasAccess($role);
+    }
+
     public function canAccessPanel(Panel $panel): bool
     {
         return true;
