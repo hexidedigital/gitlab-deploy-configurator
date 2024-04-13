@@ -2,12 +2,12 @@
 
 namespace App\Jobs;
 
+use App\DeployConfigurator\DeployConfigBuilder;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
 use App\GitLab\Data\ProjectData;
 use App\GitLab\Deploy\Data\CiCdOptions;
 use App\GitLab\Deploy\Data\ProjectDetails;
 use App\Models\User;
-use App\Parser\DeployConfigBuilder;
 use Exception;
 use Filament\Notifications\Actions\Action;
 use Filament\Notifications\Notification;

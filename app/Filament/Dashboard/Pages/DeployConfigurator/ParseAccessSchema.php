@@ -2,10 +2,10 @@
 
 namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
+use App\DeployConfigurator\DeployConfigBuilder;
 use App\Filament\Actions\Forms\Components\CopyAction;
 use App\Filament\Contacts\HasParserInfo;
 use App\Filament\Dashboard\Pages\DeployConfigurator;
-use App\Parser\DeployConfigBuilder;
 use Closure;
 use Exception;
 use Filament\Forms;

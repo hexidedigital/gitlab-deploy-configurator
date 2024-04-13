@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Parser;
+namespace App\DeployConfigurator;
 
 use App\GitLab\Deploy\Data\ProjectDetails;
 use Illuminate\Support\Collection;

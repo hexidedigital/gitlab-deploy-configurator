@@ -2,6 +2,7 @@
 
 namespace App\Filament\Dashboard\Pages;
 
+use App\DeployConfigurator\DeployConfigBuilder;
 use App\Filament\Contacts\HasParserInfo;
 use App\Filament\Dashboard\Pages\DeployConfigurator\InteractsWithParser;
 use App\Filament\Dashboard\Pages\DeployConfigurator\SampleFormData;
@@ -13,7 +14,6 @@ use App\GitLab\Deploy\Data\CiCdOptions;
 use App\GitLab\Deploy\Data\ProjectDetails;
 use App\Jobs\ConfigureRepositoryJob;
 use App\Models\User;
-use App\Parser\DeployConfigBuilder;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
 use Filament\Facades\Filament;
