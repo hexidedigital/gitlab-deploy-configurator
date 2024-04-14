@@ -13,6 +13,7 @@
         "hexide-digital/gitlab-deploy": "^1.4",
         "laravel-notification-channels/telegram": "^5.0",
         "laravel/framework": "^11.0",
+        "laravel/pulse": "^1.0@beta",
         "laravel/telescope": "^5.0",
         "laravel/tinker": "^2.9",
         "league/flysystem-sftp-v3": "^3.26",
@@ -81,6 +82,6 @@
             "php-http/discovery": true
         }
     },
-    "minimum-stability": "stable",
+    "minimum-stability": "beta",
     "prefer-stable": true
 }

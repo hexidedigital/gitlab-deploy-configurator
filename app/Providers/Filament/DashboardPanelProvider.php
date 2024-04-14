@@ -59,6 +59,11 @@ class DashboardPanelProvider extends PanelProvider
                     ->group('System')
                     ->visible(fn () => Auth::user()->isRoot())
                     ->url(fn () => route('log-viewer.index'), shouldOpenInNewTab: true),
+                NavigationItem::make()
+                    ->label('Pulse')
+                    ->group('System')
+                    ->visible(fn () => Auth::user()->isRoot())
+                    ->url(fn () => route('pulse'), shouldOpenInNewTab: true),
             ])
             ->discoverResources(in: app_path('Filament/Dashboard/Resources'), for: 'App\\Filament\\Dashboard\\Resources')
             ->discoverPages(in: app_path('Filament/Dashboard/Pages'), for: 'App\\Filament\\Dashboard\\Pages')
