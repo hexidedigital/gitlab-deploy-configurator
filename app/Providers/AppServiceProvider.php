@@ -73,7 +73,7 @@ class AppServiceProvider extends ServiceProvider
                     new UserTelegramNotification(
                         TelegramMessage::create()
                             ->line("Hi, {$login->user->name}! We noticed that you have logged in.")
-                            ->line('Time: ' . now()->format('Y-m-d H:i:s'))
+                            ->line('Time: ' . now()->timezone('Europe/Kiev')->format('Y-m-d H:i:s'))
                     )
                 );
             }
@@ -85,7 +85,7 @@ class AppServiceProvider extends ServiceProvider
                     TelegramMessage::create()
                         ->line('Unfortunately, we failed to configure your repository.')
                         ->line('Project: ' . $event->projectData->name)
-                        ->line('Time: ' . now()->format('Y-m-d H:i:s'))
+                        ->line('Time: ' . now()->timezone('Europe/Kiev')->format('Y-m-d H:i:s'))
                         ->line('Error: ' . $event->exception?->getMessage())
                 )
             );
@@ -100,7 +100,7 @@ class AppServiceProvider extends ServiceProvider
                             ->line('Failed to configure repository.')
                             ->line('Project: ' . $event->projectData->name)
                             ->line('User: ' . $event->user->name)
-                            ->line('Time: ' . now()->format('Y-m-d H:i:s'))
+                            ->line('Time: ' . now()->timezone('Europe/Kiev')->format('Y-m-d H:i:s'))
                             ->line('Error: ' . $event->exception?->getMessage())
                             ->button('Telescope', route('telescope', 'exceptions'))
                             ->button('Log-viewer', route('log-viewer.index'))

@@ -182,7 +182,7 @@ class ConfigureRepositoryJob implements ShouldQueue
                     ->line('Your repository has been configured successfully.')
                     ->line('Project: ' . $this->gitlabProject->name)
                     ->line('Stage: ' . $stageName)
-                    ->line('Time: ' . now()->format('Y-m-d H:i:s'))
+                    ->line('Time: ' . now()->timezone('Europe/Kiev')->format('Y-m-d H:i:s'))
                     ->button("Open {$this->state->getStage()->server->domain}", $this->state->getStage()->server->domain)
             )
         );
