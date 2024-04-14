@@ -1,4 +1,11 @@
-@foreach($config['stages'] as $stageConfig)
+@php
+    /**
+     * @var array $stages
+     * @var array $stageConfig
+     */
+@endphp
+
+@foreach($stages as $stageConfig)
     @php
         $server = $stageConfig['server']['host'];
         $user = $stageConfig['server']['login'];
@@ -30,7 +37,7 @@
 
         <div class="">
             <p class="text-blue-500 font-bold">Site url</p>
-            <span>{{$DEPLOY_SERVER}}</span>
+            <span>{{$DEPLOY_DOMAIN}}</span>
         </div>
 
         <div class="">
@@ -56,7 +63,7 @@
                 <div>domain: {{$DEPLOY_DOMAIN}}</div>
                 <div>db_name: {{$DB_DATABASE}}</div>
                 <div>db_user: {{$DB_USERNAME}}</div>
-                <div>password: @include('gitlab-deploy::console.password', ['password' => $DB_PASSWORD])</div>
+                <div>password: {{$DB_PASSWORD}}</div>
             </div>
         </div>
     </div>

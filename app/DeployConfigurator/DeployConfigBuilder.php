@@ -48,9 +48,9 @@ class DeployConfigBuilder
         return $this->accessParser->getNotResolved($stageName);
     }
 
-    public function buildDeployPrepareConfig(?string $forceParseStageName = null): array
+    public function processStages(?string $forceParseStageName = null): array
     {
-        $stages = $this->stagesList
+        return $this->stagesList
             ->filter(function (array $stageConfig) use ($forceParseStageName) {
                 return ($stageConfig['can_be_parsed'] ?? false)
                     || !empty($stageConfig['name'])
@@ -66,10 +66,12 @@ class DeployConfigBuilder
                     'options' => [
                         'git-url' => $this->projectDetails->git_url,
                         'base-dir-pattern' => data_get($stageConfig, 'options.base_dir_pattern'),
-                        /*todo - add new option*/
-                        'home-folder' => data_get($stageConfig, 'options.home_folder'),
                         'bin-composer' => data_get($stageConfig, 'options.bin_composer'),
                         'bin-php' => data_get($stageConfig, 'options.bin_php'),
+
+                        // additional keys, not used in yaml file
+                        'home-folder' => data_get($stageConfig, 'options.home_folder'),
+                        'ssh' => data_get($stageConfig, 'options.ssh'),
                     ],
                     ...collect($this->getAccessInfo($stageName))
                         ->only(['database', 'mail', 'server'])
@@ -78,7 +80,10 @@ class DeployConfigBuilder
             })
             ->values()
             ->toArray();
+    }
 
+    public function buildDeployPrepareConfig(?string $forceParseStageName = null): array
+    {
         return [
             'version' => self::YML_CONFIG_VERSION,
             'git-lab' => [
@@ -88,7 +93,15 @@ class DeployConfigBuilder
                     'domain' => $this->projectDetails->domain,
                 ],
             ],
-            'stages' => $stages,
+            'stages' => collect($this->processStages($forceParseStageName))->map(function ($stage) {
+                $stage['options'] = collect($stage['options'])->except([
+                    // additional keys, not used in yaml file
+                    'home-folder',
+                    'ssh',
+                ])->all();
+
+                return $stage;
+            })->all(),
         ];
     }
 

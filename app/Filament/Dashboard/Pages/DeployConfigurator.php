@@ -114,6 +114,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                     node_version: $this->data['ci_cd_options']['node_version'],
                 ),
                 deployConfigurations: $deployConfigBuilder->buildDeployPrepareConfig(),
+                stages: $deployConfigBuilder->processStages(),
                 startAt: $this->openedAt,
             )
         );
@@ -172,12 +173,12 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
 
                     $deployConfigBuilder->parseConfiguration($configurations);
 
-                    $config = $deployConfigBuilder->buildDeployPrepareConfig();
+                    $stages = $deployConfigBuilder->processStages();
 
                     return [
                         Forms\Components\View::make('helpful-suggestion')
                             ->viewData([
-                                'config' => $config,
+                                'stages' => $stages,
                             ]),
                     ];
                 }),

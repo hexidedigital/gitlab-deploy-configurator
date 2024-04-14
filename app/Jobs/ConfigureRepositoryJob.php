@@ -33,6 +33,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use NotificationChannels\Telegram\TelegramMessage;
+use phpseclib3\Crypt\PublicKeyLoader;
 use phpseclib3\Net\SSH2;
 use Psr\Log\LoggerInterface;
 use RuntimeException;
@@ -69,6 +70,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         public ProjectDetails $projectDetails,
         public CiCdOptions $ciCdOptions,
         public array $deployConfigurations,
+        public array $stages,
         public Carbon $startAt,
     ) {
     }
@@ -98,22 +100,21 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         $this->user->notify(new UserTelegramNotification(TelegramMessage::create()->line("We started configuring '{$this->gitlabProject->name}' repository...")));
 
-        // todo mock
-        //$this->cleanUpRepository();
+        $this->cleanUpRepositoryForTesting();
 
         $this->prepareWorkingDirectoryForProjectSetup();
 
         $this->logger->info('Prepare general configurations...');
 
         // prepare general configurations
-        $deployConfigBuilder->setStagesList($this->deployConfigurations['stages']);
+        $deployConfigBuilder->setStagesList($this->stages);
         $deployConfigBuilder->setProjectDetails($this->projectDetails);
 
         $this->state = $this->makeDeployState();
 
         $this->logger->info('Processing stages...');
 
-        foreach ($this->deployConfigurations['stages'] as $stage) {
+        foreach ($this->stages as $stage) {
             $stageName = $stage['name'];
 
             $this->logger->withContext(['stage' => $stageName]);
@@ -207,7 +208,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             ])->sendToDatabase($this->user);
     }
 
-    private function cleanUpRepository(): void
+    private function cleanUpRepositoryForTesting(): void
     {
         $this->logger->debug("Cleaning up repository '{$this->gitlabProject->name}'");
 
@@ -246,12 +247,12 @@ class ConfigureRepositoryJob implements ShouldQueue
     {
         // task 1 - generate ssh keys on localhost
         $this->logger->info('Step 1: Generating SSH keys on localhost');
-        $this->taskGenerateSshKeysOnLocalhost();
+        $this->taskGenerateSshKeysOnLocalhost($stage);
 
         // task 2 - copy ssh keys on remote host
         // get content pub key and put to auth_keys on server
         $this->logger->info('Step 2: Copying SSH keys on remote host');
-        $this->taskCopySshKeysOnRemoteHost();
+        $this->taskCopySshKeysOnRemoteHost($stage);
 
         // task 3 - generate ssh keys on remote host
         // fetch existing keys, or generate new one locally (specify user and login) or on remove (need execute)
@@ -417,14 +418,28 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         $variables = $this->state->getReplacements();
 
+        $sshOptions = data_get($stage, 'options.ssh');
+
         $host = $variables->get('DEPLOY_SERVER'); // ip or domain
         $login = $variables->get('DEPLOY_USER');
-        $password = $variables->get('DEPLOY_PASS');
+
+        $useCustomSshKeys = data_get($sshOptions, 'use_custom_ssh_key', false);
+        if ($useCustomSshKeys) {
+            $key = PublicKeyLoader::load(
+                key: $privateKey = data_get($sshOptions, 'private_key'),
+                password: data_get($sshOptions, 'private_key_password') ?: false
+            );
+
+            File::ensureDirectoryExists(File::dirname($pathKeyPath = "{$this->deployFolder}/local_ssh/id_rsa"));
+            File::put($pathKeyPath, $privateKey);
+        } else {
+            $key = $variables->get('DEPLOY_PASS');
+        }
 
         $this->logger->info('Checking connection to remote host');
         $ssh = new SSH2($host, ($port = $variables->get('SSH_PORT') ?: 22));
-        if (!$ssh->login($login, $password)) {
-            $this->logger->error('Failed to connect with ssh', compact(['login', 'host', 'port']));
+        if (!$ssh->login($login, $key)) {
+            $this->logger->error('Failed to connect with ssh', compact(['login', 'host', 'port', 'useCustomSshKeys']));
 
             throw new RuntimeException('SSH Login failed');
         }
@@ -441,11 +456,13 @@ class ConfigureRepositoryJob implements ShouldQueue
 
             // Settings for basic authentication...
             'username' => $login,
-            'password' => $password,
-
-            // Settings for SSH key based authentication with encryption password...
-            // 'privateKey' => '/path/to/private_key',
-            // 'passphrase' => env('SFTP_PASSPHRASE'),
+            ...( !$useCustomSshKeys ? [
+                'password' => $variables->get('DEPLOY_PASS'),
+            ] : [
+                // Settings for SSH key based authentication with encryption password...
+                'privateKey' => data_get($sshOptions, 'private_key'),
+                'passphrase' => data_get($sshOptions, 'private_key_password'),
+            ]),
 
             // Settings for file / directory permissions...
             'visibility' => 'public', // `private` = 0600, `public` = 0644
@@ -460,18 +477,32 @@ class ConfigureRepositoryJob implements ShouldQueue
         ]);
     }
 
-    private function taskGenerateSshKeysOnLocalhost(): void
+    private function taskGenerateSshKeysOnLocalhost(array $stage): void
     {
-        File::ensureDirectoryExists("{$this->deployFolder}/local_ssh");
+        $sshOptions = data_get($stage, 'options.ssh');
+        $useCustomSshKeys = data_get($sshOptions, 'use_custom_ssh_key', false);
 
-        $identityFilePath = $this->state->getReplacements()->get('IDENTITY_FILE');
-        $isIdentityKeyExists = File::exists($identityFilePath) || File::exists("{$identityFilePath}.pub");
-        if (!$isIdentityKeyExists) {
-            $this->generateIdentityKey($identityFilePath, $this->user->email);
+        if ($useCustomSshKeys) {
+            $identityFileContent = data_get($sshOptions, 'private_key') ?: '';
+        } else {
+            File::ensureDirectoryExists("{$this->deployFolder}/local_ssh");
+
+            $identityFilePath = $this->state->getReplacements()->get('IDENTITY_FILE');
+            $isIdentityKeyExists = File::exists($identityFilePath) || File::exists("{$identityFilePath}.pub");
+            if (!$isIdentityKeyExists) {
+                $this->generateIdentityKey($identityFilePath, $this->user->email);
+            }
+
+            $identityFileContent = File::get($identityFilePath) ?: '';
+        }
+
+        if ($identityFileContent === '') {
+            $this->logger->warning('Empty SSH private key content. Skip creating "SSH_PRIVATE_KEY" variable');
+
+            return;
         }
 
         // update private key variable
-        $identityFileContent = File::get($identityFilePath) ?: '';
         $variable = new Variable(
             key: 'SSH_PRIVATE_KEY',
             scope: $this->state->getStage()->name,
@@ -548,9 +579,24 @@ class ConfigureRepositoryJob implements ShouldQueue
         }
     }
 
-    private function taskCopySshKeysOnRemoteHost(): void
+    private function taskCopySshKeysOnRemoteHost(array $stage): void
     {
+        $sshOptions = data_get($stage, 'options.ssh');
+        $useCustomSshKeys = data_get($sshOptions, 'use_custom_ssh_key', false);
+
+        if ($useCustomSshKeys) {
+            $this->logger->warning('Custom SSH keys enabled. Skip copying keys to remote host');
+
+            return;
+        }
+
         $identityFilePath = $this->state->getReplacements()->get('IDENTITY_FILE_PUB');
+        if (!File::exists($identityFilePath)) {
+            $this->logger->error('Can not find public key file. Skip copying keys to remote host');
+
+            return;
+        }
+
         $publicKey = File::get($identityFilePath);
 
         $authorizedKeysPath = '.ssh/authorized_keys';

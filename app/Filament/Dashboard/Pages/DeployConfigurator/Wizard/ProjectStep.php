@@ -31,30 +31,32 @@ class ProjectStep extends Forms\Components\Wizard\Step
                     throw new Halt();
                 }
             })
+            ->columns()
             ->schema([
-                Forms\Components\Select::make('projectInfo.selected_id')
-                    ->label('Project')
-                    ->placeholder('Select project...')
-                    ->required()
-                    ->live()
-                    ->searchable()
-                    ->columnSpan(1)
-                    ->getSearchResultsUsing(function (string $search, DeployConfigurator $livewire) {
-                        return $livewire->fetchProjectFromGitLab([
-                            'search' => $search,
-                        ])->map(fn (ProjectData $project) => $project->getNameForSelect());
-                    })
-                    ->options(function (DeployConfigurator $livewire) {
-                        return $livewire->fetchProjectFromGitLab()
-                            ->map(fn (ProjectData $project) => $project->getNameForSelect());
-                    })
-                    ->afterStateUpdated(function (Forms\Get $get, DeployConfigurator $livewire) {
-                        $livewire->selectProject($get('projectInfo.selected_id'));
-                    }),
+                Forms\Components\Grid::make(1)->columnSpan(1)->schema([
+                    Forms\Components\Select::make('projectInfo.selected_id')
+                        ->label('Project')
+                        ->placeholder('Select project...')
+                        ->required()
+                        ->live()
+                        ->searchable()
+                        ->getSearchResultsUsing(function (string $search, DeployConfigurator $livewire) {
+                            return $livewire->fetchProjectFromGitLab([
+                                'search' => $search,
+                            ])->map(fn (ProjectData $project) => $project->getNameForSelect());
+                        })
+                        ->options(function (DeployConfigurator $livewire) {
+                            return $livewire->fetchProjectFromGitLab()
+                                ->map(fn (ProjectData $project) => $project->getNameForSelect());
+                        })
+                        ->afterStateUpdated(function (Forms\Get $get, DeployConfigurator $livewire) {
+                            $livewire->selectProject($get('projectInfo.selected_id'));
+                        }),
 
-                Forms\Components\Toggle::make('projectInfo.is_test')
-                    ->label('Is testing project')
-                    ->visible(fn (Forms\Get $get) => $get('projectInfo.selected_id') == ConfigureRepositoryJob::TEST_PROJECT),
+                    Forms\Components\Toggle::make('projectInfo.is_test')
+                        ->label('Is testing project')
+                        ->visible(fn (Forms\Get $get) => $get('projectInfo.selected_id') == ConfigureRepositoryJob::TEST_PROJECT),
+                ]),
 
                 Forms\Components\Section::make('empty_repository')
                     ->visible(fn (DeployConfigurator $livewire) => $livewire->emptyRepo)

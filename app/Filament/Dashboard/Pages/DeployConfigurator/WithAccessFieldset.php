@@ -26,7 +26,8 @@ trait WithAccessFieldset
                     ->content(fn (Forms\Get $get) => $get('accessInfo.server.login')),
                 Forms\Components\Placeholder::make('placeholder.accessInfo.server.password')
                     ->label('Password')
-                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.password')),
+                    ->content(fn (Forms\Get $get) => $get('accessInfo.server.password') ?: str('_(uses SSH key)_')
+                        ->markdown()->toHtmlString()),
             ]);
     }
 

@@ -86,7 +86,7 @@ class AppServiceProvider extends ServiceProvider
                         ->line('Unfortunately, we failed to configure your repository.')
                         ->line('Project: ' . $event->projectData->name)
                         ->line('Time: ' . now()->timezone('Europe/Kiev')->format('Y-m-d H:i:s'))
-                        ->line('Error: ' . $event->exception?->getMessage())
+                        ->escapedLine('Error: ' . $event->exception?->getMessage())
                 )
             );
 
@@ -101,7 +101,7 @@ class AppServiceProvider extends ServiceProvider
                             ->line('Project: ' . $event->projectData->name)
                             ->line('User: ' . $event->user->name)
                             ->line('Time: ' . now()->timezone('Europe/Kiev')->format('Y-m-d H:i:s'))
-                            ->line('Error: ' . $event->exception?->getMessage())
+                            ->escapedLine('Error: ' . $event->exception?->getMessage())
                             ->button('Telescope', route('telescope', 'exceptions'))
                             ->button('Log-viewer', route('log-viewer.index'))
                     )

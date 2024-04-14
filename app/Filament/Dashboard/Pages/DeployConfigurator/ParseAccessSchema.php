@@ -16,6 +16,7 @@ use Filament\Support\Enums\Alignment;
 use Filament\Support\Enums\IconSize;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use phpseclib3\Crypt\PublicKeyLoader;
 use phpseclib3\Net\SSH2;
 use Throwable;
 
@@ -198,7 +199,7 @@ class ParseAccessSchema extends Forms\Components\Grid
 
                             $deployConfigBuilder->parseConfiguration($configurations);
 
-                            $deployConfigBuilder->buildDeployPrepareConfig();
+                            $deployConfigBuilder->processStages();
 
                             $path = $deployConfigBuilder->makeDeployPrepareYmlFile();
 
@@ -234,7 +235,7 @@ class ParseAccessSchema extends Forms\Components\Grid
 
                     $parser->parseConfiguration($configurations);
 
-                    $parser->buildDeployPrepareConfig($stageName);
+                    $parser->processStages($stageName);
 
                     $set('can_be_parsed', true);
 
@@ -337,7 +338,7 @@ class ParseAccessSchema extends Forms\Components\Grid
 
                                     $parser->parseConfiguration($configurations);
 
-                                    $parser->buildDeployPrepareConfig();
+                                    $parser->processStages();
 
                                     $path = $parser->makeDeployerPhpFile($get('name'), generateWithVariables: true);
 
@@ -411,6 +412,28 @@ class ParseAccessSchema extends Forms\Components\Grid
             ->iconColor(Color::Blue)
             ->schema(function () {
                 return [
+                    Forms\Components\Checkbox::make('options.ssh.use_custom_ssh_key')
+                        ->label('Authenticate using custom SSH key')
+                        ->required(fn (Forms\Get $get) => empty($get('accessInfo.server.password')))
+                        ->reactive(),
+
+                    Forms\Components\Fieldset::make('SSH keys')
+                        ->visible(fn (Forms\Get $get) => $get('options.ssh.use_custom_ssh_key'))
+                        ->statePath('options.ssh')
+                        ->reactive()
+                        ->schema([
+                            Forms\Components\Textarea::make('private_key')
+                                ->placeholder('-----BEGIN OPENSSH PRIVATE KEY-----')
+                                ->startsWith('---')
+                                ->live()
+                                ->required(fn (Forms\Get $get) => empty($get('accessInfo.server.password')))
+                                ->helperText('Will be used for authentication and added to GitLab variables under `SSH_PRIVATE_KEY` key'),
+                            Forms\Components\TextInput::make('private_key_password')
+                                ->disabled()
+                                ->helperText('Currently this feature not supported ')
+                                ->placeholder('password for key (passphrase)'),
+                        ]),
+
                     Forms\Components\Actions::make([
                         $this->getTestSshButton(),
                         $this->getSshConnectionInfoButton(),
@@ -450,11 +473,27 @@ class ParseAccessSchema extends Forms\Components\Grid
         return $this->tap(fn () => $this->showMoreConfigurationSection = $callback);
     }
 
-    protected function connectToServer(array $server): bool|SSH2
+    protected function connectToServer(array $server, array $sshOptions = []): bool|SSH2
     {
         $ssh = new SSH2($server['host'], $server['port'] ?? 22);
 
-        if ($ssh->login($server['login'], $server['password'])) {
+        if (data_get($sshOptions, 'use_custom_ssh_key', false)) {
+            $privateKey = data_get($sshOptions, 'private_key');
+            if (empty($privateKey)) {
+                Notification::make()->title('Private key is empty')->danger()->send();
+
+                return false;
+            }
+
+            $key = PublicKeyLoader::load(
+                key: $privateKey,
+                password: data_get($sshOptions, 'private_key_password') ?: false
+            );
+        } else {
+            $key = data_get($server, 'password');
+        }
+
+        if ($ssh->login($server['login'], $key)) {
             return $ssh;
         }
 
@@ -466,14 +505,16 @@ class ParseAccessSchema extends Forms\Components\Grid
         return Forms\Components\Actions\Action::make('test_ssh')
             ->label('Check SSH connection')
             ->icon('heroicon-o-key')
+            ->disabled(fn (Forms\Get $get) => empty($get('accessInfo.server.password')) && empty($get('options.ssh.private_key')))
             ->action(function (Forms\Get $get, Forms\Set $set) {
                 // reset data
                 $set('server_connection_result', null);
                 $set('ssh_connected', false);
 
                 $server = $get('accessInfo.server');
+                $sshOptions = $get('options.ssh');
 
-                $ssh = $this->connectToServer($server);
+                $ssh = $this->connectToServer($server, $sshOptions);
 
                 if (!$ssh) {
                     Notification::make()->title('SSH connection failed')->danger()->send();
@@ -496,8 +537,9 @@ class ParseAccessSchema extends Forms\Components\Grid
             ->icon('heroicon-o-server')
             ->action(function (Forms\Get $get, Forms\Set $set, DeployConfigurator $livewire) {
                 $server = $get('accessInfo.server');
+                $sshOptions = $get('options.ssh');
 
-                $ssh = $this->connectToServer($server);
+                $ssh = $this->connectToServer($server, $sshOptions);
 
                 if (!$ssh) {
                     Notification::make()->title('SSH connection failed')->danger()->send();
@@ -513,8 +555,9 @@ class ParseAccessSchema extends Forms\Components\Grid
                 $paths = str($ssh->exec('whereis php php8.2 composer'))
                     ->explode(PHP_EOL)
                     ->mapWithKeys(function ($pathInfo, $line) {
-                        $binType = str($pathInfo)->before(':')->value();
-                        $binPath = ($all = str($pathInfo)->after("{$binType}:")->explode(' '))->first();
+                        $binType = Str::of($pathInfo)->before(':')->trim()->value();
+                        $all = Str::of($pathInfo)->after("{$binType}:")->ltrim()->explode(' ');
+                        $binPath = $all->first();
 
                         if (!$binType || !$binPath) {
                             return [$line => null];
@@ -534,20 +577,23 @@ class ParseAccessSchema extends Forms\Components\Grid
                     ->filter();
 
                 $phpV = '-';
-                $phpVOutput = '-';
                 $composerV = '-';
-                $composerVOutput = '-';
 
                 $phpInfo = $paths->get('php8.2', $paths->get('php'));
-                if ($binPhp = $phpInfo['bin']) {
+                if (empty($phpInfo['bin'])) {
+                    $phpVOutput = 'PHP not found';
+                } else {
+                    $binPhp = $phpInfo['bin'];
                     $phpVOutput = $ssh->exec($binPhp . ' -v');
 
                     $phpV = preg_match('/PHP (\d+\.\d+\.\d+)/', $phpVOutput, $matches) ? $matches[1] : '-';
 
-                    if ($binComposer = $paths->get('composer')['bin']) {
+                    if ($binComposer = $paths->get('composer')['bin'] ?? null) {
                         $composerVOutput = $ssh->exec("{$binPhp} {$binComposer} -V");
 
                         $composerV = preg_match('/Composer (?:version )?(\d+\.\d+\.\d+)/', $composerVOutput, $matches) ? $matches[1] : '-';
+                    } else {
+                        $composerVOutput = 'Composer not found';
                     }
                 }
 
