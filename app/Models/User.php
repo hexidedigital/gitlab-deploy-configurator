@@ -55,7 +55,7 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         return !is_null($this->role) && $this->role->hasAccess($role);
     }
 
-    public function canRecieveTelegramMessage(): bool
+    public function canReceiveTelegramMessage(): bool
     {
         return $this->is_telegram_enabled && $this->telegram_id;
     }

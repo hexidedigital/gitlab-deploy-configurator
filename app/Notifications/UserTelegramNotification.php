@@ -16,11 +16,11 @@ class UserTelegramNotification extends Notification
     public function via(User $notifiable): array
     {
         return array_filter([
-            ($notifiable->canRecieveTelegramMessage()) ? 'telegram' : null,
+            ($notifiable->canReceiveTelegramMessage()) ? 'telegram' : null,
         ]);
     }
 
-    public function toTelegram(User $notifiable)
+    public function toTelegram(User $notifiable): TelegramMessage
     {
         return $this->telegramMessage
             ->to($notifiable->telegram_id);
