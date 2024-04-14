@@ -2,11 +2,14 @@
 
 namespace App\Providers\Filament;
 
+use App\Enums\Role;
 use App\Filament\Dashboard\Pages\EditProfile;
 use App\Filament\Dashboard\Pages\Register;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\NavigationGroup;
+use Filament\Navigation\NavigationItem;
 use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -18,6 +21,7 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class DashboardPanelProvider extends PanelProvider
@@ -39,6 +43,23 @@ class DashboardPanelProvider extends PanelProvider
             ->globalSearch(false)
             ->sidebarCollapsibleOnDesktop()
             ->databaseNotifications()
+            ->navigationGroups([
+                NavigationGroup::make()
+                    ->label('System')
+                    ->icon('heroicon-o-cog-6-tooth'),
+            ])
+            ->navigationItems([
+                NavigationItem::make()
+                    ->label('Telescope')
+                    ->group('System')
+                    ->visible(fn () => Auth::user()->hasMinAccess(Role::Root))
+                    ->url(fn () => route('telescope'), shouldOpenInNewTab: true),
+                NavigationItem::make()
+                    ->label('Log Viewer')
+                    ->group('System')
+                    ->visible(fn () => Auth::user()->hasMinAccess(Role::Root))
+                    ->url(fn () => route('log-viewer.index'), shouldOpenInNewTab: true),
+            ])
             ->discoverResources(in: app_path('Filament/Dashboard/Resources'), for: 'App\\Filament\\Dashboard\\Resources')
             ->discoverPages(in: app_path('Filament/Dashboard/Pages'), for: 'App\\Filament\\Dashboard\\Pages')
             ->pages([
