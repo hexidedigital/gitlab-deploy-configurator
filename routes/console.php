@@ -8,7 +8,9 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote')->hourly();
 
-Schedule::command('queue:work', [
-    '--once',
-    '--sleep' => 10,
-])->everyMinute();
+if (!app()->isProduction()) {
+    Schedule::command('queue:work', [
+        '--once',
+        '--sleep' => 10,
+    ])->everyMinute();
+}
