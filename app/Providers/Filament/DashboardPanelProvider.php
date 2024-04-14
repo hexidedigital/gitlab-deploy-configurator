@@ -32,6 +32,7 @@ class DashboardPanelProvider extends PanelProvider
             ->colors([
                 'primary' => Color::Amber,
             ])
+            ->favicon(asset('favicon.png'))
             ->login()
             ->profile(EditProfile::class, false)
             ->registration(Register::class)
