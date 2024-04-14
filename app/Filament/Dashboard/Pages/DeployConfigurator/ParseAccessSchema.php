@@ -514,7 +514,7 @@ class ParseAccessSchema extends Forms\Components\Grid
                     ->explode(PHP_EOL)
                     ->mapWithKeys(function ($pathInfo, $line) {
                         $binType = str($pathInfo)->before(':')->value();
-                        $binPath = ($all = str($pathInfo)->after(': ')->explode(' '))->first();
+                        $binPath = ($all = str($pathInfo)->after("{$binType}:")->explode(' '))->first();
 
                         if (!$binType || !$binPath) {
                             return [$line => null];
