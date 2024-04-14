@@ -45,7 +45,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         Gate::define('viewLogViewer', function (?User $user) {
-            return !is_null($user) && $user->hasMinAccess(Role::Root);
+            return !is_null($user) && $user->isRoot();
         });
 
         Authenticate::redirectUsing(function () {

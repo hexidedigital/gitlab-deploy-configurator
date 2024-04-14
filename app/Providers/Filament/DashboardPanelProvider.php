@@ -52,12 +52,12 @@ class DashboardPanelProvider extends PanelProvider
                 NavigationItem::make()
                     ->label('Telescope')
                     ->group('System')
-                    ->visible(fn () => Auth::user()->hasMinAccess(Role::Root))
+                    ->visible(fn () => Auth::user()->isRoot())
                     ->url(fn () => route('telescope'), shouldOpenInNewTab: true),
                 NavigationItem::make()
                     ->label('Log Viewer')
                     ->group('System')
-                    ->visible(fn () => Auth::user()->hasMinAccess(Role::Root))
+                    ->visible(fn () => Auth::user()->isRoot())
                     ->url(fn () => route('log-viewer.index'), shouldOpenInNewTab: true),
             ])
             ->discoverResources(in: app_path('Filament/Dashboard/Resources'), for: 'App\\Filament\\Dashboard\\Resources')
