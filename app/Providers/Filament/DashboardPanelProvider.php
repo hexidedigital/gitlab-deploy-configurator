@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 use App\Enums\Role;
 use App\Filament\Dashboard\Pages\EditProfile;
 use App\Filament\Dashboard\Pages\Register;
+use App\Filament\Resources\UserResource;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
@@ -66,6 +67,9 @@ class DashboardPanelProvider extends PanelProvider
                     ->url(fn () => route('pulse'), shouldOpenInNewTab: true),
             ])
             ->discoverResources(in: app_path('Filament/Dashboard/Resources'), for: 'App\\Filament\\Dashboard\\Resources')
+            ->resources([
+                UserResource::class,
+            ])
             ->discoverPages(in: app_path('Filament/Dashboard/Pages'), for: 'App\\Filament\\Dashboard\\Pages')
             ->pages([
                 Pages\Dashboard::class,
