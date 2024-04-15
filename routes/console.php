@@ -14,3 +14,5 @@ if (!app()->isProduction()) {
         '--sleep' => 10,
     ])->everyMinute();
 }
+
+Schedule::command('telescope:prune', ['--hours' => 24])->hourly();
