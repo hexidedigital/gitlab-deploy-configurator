@@ -7,6 +7,7 @@ use App\Events\DeployConfigurationJobFailedEvent;
 use App\Models\User;
 use App\Notifications\UserTelegramNotification;
 use DefStudio\Telegraph\Models\TelegraphBot;
+use Filament\Events\Auth\Registered;
 use Filament\Facades\Filament;
 use Filament\Support\Assets\Js;
 use Filament\Support\Facades\FilamentAsset;
@@ -67,12 +68,28 @@ class AppServiceProvider extends ServiceProvider
 
     protected function registerListeners(): void
     {
-        Event::listen(function (Login $login) {
-            if ($login->user instanceof User) {
-                $login->user->notify(
+        Event::listen(function (Login $event) {
+            $user = $event->user;
+            if ($user instanceof User) {
+                $user->notify(
                     new UserTelegramNotification(
                         TelegramMessage::create()
-                            ->line("Hi, {$login->user->name}! We noticed that you have logged in.")
+                            ->line("Hi, {$user->name}! We noticed that you have logged in.")
+                            ->line('Time: ' . now()->format('Y-m-d H:i:s'))
+                    )
+                );
+            }
+        });
+
+        Event::listen(function (Registered $event) {
+            $user = $event->getUser();
+            if ($user instanceof User) {
+                $user->update(['role' => Role::Developer]);
+
+                User::find(2)->notify(
+                    new UserTelegramNotification(
+                        TelegramMessage::create()
+                            ->line("Registered new user: {$user->name}, {$user->email}")
                             ->line('Time: ' . now()->timezone('Europe/Kiev')->format('Y-m-d H:i:s'))
                     )
                 );
