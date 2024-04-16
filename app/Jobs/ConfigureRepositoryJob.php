@@ -346,9 +346,9 @@ class ConfigureRepositoryJob implements ShouldQueue
         $commit = $this->getGitLabManager()->repositories()->createCommit($this->gitlabProject->id, [
             "branch" => $stageName,
             "start_branch" => $this->gitlabProject->default_branch,
-            "commit_message" => "Configure deployment",
-            "author_name" => "DeployHelper",
-            "author_email" => "deploy-helper@hexide-digital.com",
+            "commit_message" => "Configure deployment 🚀",
+            "author_name" => "Deploy Configurator Bot",
+            "author_email" => "deploy-configurator-bot@hexide-digital.com",
             "actions" => $actions->all(),
         ]);
 
