@@ -437,7 +437,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         }
 
         $this->logger->info('Checking connection to remote host');
-        $ssh = new SSH2($host, ($port = $variables->get('SSH_PORT') ?: 22));
+        $ssh = new SSH2($host, $port = $variables->get('SSH_PORT') ?: 22);
         if (!$ssh->login($login, $key)) {
             $this->logger->error('Failed to connect with ssh', compact(['login', 'host', 'port', 'useCustomSshKeys']));
 
@@ -446,7 +446,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         $this->logger->info('Connection to remote host established');
 
         $root = data_get($stage, 'options.home_folder') ?: $this->resolveHomeDirectory();
-        $this->logger->debug("Using '$root' as root folder for sftp");
+        $this->logger->debug("Using '{$root}' as root folder for sftp");
 
         // https://laravel.com/docs/filesystem#sftp-driver-configuration
         // https://flysystem.thephpleague.com/docs/adapter/sftp-v3
@@ -456,7 +456,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
             // Settings for basic authentication...
             'username' => $login,
-            ...( !$useCustomSshKeys ? [
+            ...(!$useCustomSshKeys ? [
                 'password' => $variables->get('DEPLOY_PASS'),
             ] : [
                 // Settings for SSH key based authentication with encryption password...

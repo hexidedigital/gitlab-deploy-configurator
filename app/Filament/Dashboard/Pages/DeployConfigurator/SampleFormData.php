@@ -81,7 +81,7 @@ class SampleFormData
                     ...$defaultStageOptions,
                 ],
             ],
-            ($includeStage ? [
+            $includeStage ? [
                 'name' => 'stage',
                 'access_input' => str($sampleInput)->replace([
                     'nwdev.net',
@@ -93,7 +93,7 @@ class SampleFormData
                 'options' => [
                     ...$defaultStageOptions,
                 ],
-            ] : null),
+            ] : null,
         ]);
     }
 }

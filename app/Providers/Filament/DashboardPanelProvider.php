@@ -2,7 +2,6 @@
 
 namespace App\Providers\Filament;
 
-use App\Enums\Role;
 use App\Filament\Dashboard\Pages\EditProfile;
 use App\Filament\Dashboard\Pages\Register;
 use App\Filament\Resources\UserResource;
