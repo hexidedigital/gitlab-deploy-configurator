@@ -3,8 +3,6 @@
 namespace App\Filament\Dashboard\Pages;
 
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
-use App\Notifications\ProfileOpenedNotification;
-use App\Notifications\UserTelegramNotification;
 use DefStudio\Telegraph\Models\TelegraphBot;
 use Filament\Forms\Components\Component;
 use Filament\Forms\Components\Hidden;
@@ -21,7 +19,6 @@ use GrahamCampbell\GitLab\GitLabManager;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
-use NotificationChannels\Telegram\TelegramMessage;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class EditProfile extends \Filament\Pages\Auth\EditProfile
@@ -160,7 +157,7 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
                     return;
                 }
 
-                $url = TelegraphBot::firstWhere('name', 'DeployConfigurationBot')?->url();
+                $url = TelegraphBot::firstWhere('name', config('app.main_telegram_bot'))?->url();
                 if (!$url) {
                     Notification::make()
                         ->title('Telegram integration')

@@ -54,7 +54,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(Telegram::class, static function () {
-            $token = TelegraphBot::firstWhere('name', 'DeployConfigurationBot')?->token;
+            $token = TelegraphBot::firstWhere('name', config('app.main_telegram_bot'))?->token;
 
             return new Telegram(
                 $token,

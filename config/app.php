@@ -3,6 +3,11 @@
 return [
 
     /*
+     * Main telegram bot used in application
+     */
+    'main_telegram_bot' => env('APP_TELEGRAM_BOT_NAME', 'DeployConfigurationBot'),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Name
     |--------------------------------------------------------------------------
