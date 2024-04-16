@@ -7,32 +7,32 @@
     "require": {
         "php": "^8.2",
         "brunocfalcao/blade-feather-icons": "^4.0",
-        "defstudio/telegraph": "^1.42",
-        "filament/filament": "^3.2",
+        "defstudio/telegraph": "^1.43.5",
+        "filament/filament": "^3.2.69",
         "graham-campbell/gitlab": "^7.5",
-        "hexide-digital/gitlab-deploy": "^1.4",
+        "hexide-digital/gitlab-deploy": "^1.4.5",
         "laravel-notification-channels/telegram": "^5.0",
-        "laravel/framework": "^11.0",
+        "laravel/framework": "^11.4",
         "laravel/pulse": "^1.0@beta",
-        "laravel/telescope": "^5.0",
+        "laravel/telescope": "^5.0.2",
         "laravel/tinker": "^2.9",
         "league/flysystem-sftp-v3": "^3.26",
         "opcodesio/log-viewer": "^3.8",
         "owenvoke/blade-fontawesome": "^2.6",
         "simplesoftwareio/simple-qrcode": "^4.2",
         "spatie/laravel-login-link": "^1.2",
-        "symfony/yaml": "^7.0"
+        "symfony/yaml": "^7.0.3"
     },
     "require-dev": {
-        "fakerphp/faker": "^1.23",
+        "fakerphp/faker": "^1.23.1",
         "laravel-lang/common": "^6.2",
-        "laravel/pint": "^1.13",
-        "laravel/sail": "^1.26",
-        "mockery/mockery": "^1.6",
-        "nunomaduro/collision": "^8.0",
-        "pestphp/pest": "^2.34",
+        "laravel/pint": "^1.15.1",
+        "laravel/sail": "^1.29.1",
+        "mockery/mockery": "^1.6.11",
+        "nunomaduro/collision": "^8.1.1",
+        "pestphp/pest": "^2.34.7",
         "pestphp/pest-plugin-laravel": "^2.3",
-        "spatie/laravel-ignition": "^2.4"
+        "spatie/laravel-ignition": "^2.5.2"
     },
     "autoload": {
         "psr-4": {
