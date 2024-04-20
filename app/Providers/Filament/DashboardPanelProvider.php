@@ -4,7 +4,6 @@ namespace App\Providers\Filament;
 
 use App\Filament\Dashboard\Pages\EditProfile;
 use App\Filament\Dashboard\Pages\Register;
-use App\Filament\Resources\UserResource;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
@@ -45,6 +44,10 @@ class DashboardPanelProvider extends PanelProvider
             ->databaseNotifications()
             ->navigationGroups([
                 NavigationGroup::make()
+                    ->label('Manage project'),
+                NavigationGroup::make()
+                    ->label('Settings'),
+                NavigationGroup::make()
                     ->label('System')
                     ->icon('heroicon-o-cog-6-tooth'),
             ])
@@ -67,7 +70,7 @@ class DashboardPanelProvider extends PanelProvider
             ])
             ->discoverResources(in: app_path('Filament/Dashboard/Resources'), for: 'App\\Filament\\Dashboard\\Resources')
             ->resources([
-                UserResource::class,
+                //
             ])
             ->discoverPages(in: app_path('Filament/Dashboard/Pages'), for: 'App\\Filament\\Dashboard\\Pages')
             ->pages([

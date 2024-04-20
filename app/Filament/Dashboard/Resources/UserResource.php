@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Filament\Resources;
+namespace App\Filament\Dashboard\Resources;
 
 use App\Enums\Role;
-use App\Filament\Resources\UserResource\Pages;
+use App\Filament\Dashboard\Resources\UserResource\Pages;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Filament\Forms;
@@ -24,6 +24,10 @@ class UserResource extends Resource
     protected static ?string $recordTitleAttribute = 'name';
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+
+    protected static ?string $navigationGroup = 'Manage project';
+
+    protected static ?int $navigationSort = 1;
 
     public static function canViewAny(): bool
     {
@@ -94,7 +98,7 @@ class UserResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListUsers::route('/'),
+            'index' =>Pages\ListUsers::route('/'),
         ];
     }
 
