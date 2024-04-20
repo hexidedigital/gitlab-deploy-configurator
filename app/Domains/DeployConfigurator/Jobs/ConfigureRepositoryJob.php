@@ -391,7 +391,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function selectStage(): void
     {
-        $this->state->setStage($this->state->getConfigurations()->stageBag->get($this->$this->currentStageInfo->$this->name));
+        $this->state->setStage($this->state->getConfigurations()->stageBag->get($this->currentStageInfo->name));
         $this->state->setupReplacements();
         $this->state->setupGitlabVariables();
 

@@ -5,7 +5,6 @@ namespace App\Filament\Dashboard\Pages;
 use App\Domains\GitLab\GitLabService;
 use App\Settings\GeneralSettings;
 use Filament\Actions\Action;
-use Filament\Facades\Filament;
 use Filament\Forms\Components\Component;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
@@ -14,10 +13,7 @@ use Filament\Forms\Form;
 use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Gitlab\Exception\RuntimeException;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
-
-use function Deployer\parse;
 
 class Register extends \Filament\Pages\Auth\Register
 {

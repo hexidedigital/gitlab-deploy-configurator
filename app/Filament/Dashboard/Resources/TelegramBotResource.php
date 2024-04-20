@@ -3,7 +3,6 @@
 namespace App\Filament\Dashboard\Resources;
 
 use App\Filament\Dashboard\Resources\TelegramBotResource\RelationManagers\ChatsRelationManager;
-use App\Filament\Resources\TelegramBotResource\Pages;
 use App\Models\User;
 use DefStudio\Telegraph\Models\TelegraphBot;
 use Filament\Facades\Filament;
@@ -11,9 +10,6 @@ use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
-use Filament\Tables\Actions\BulkActionGroup;
-use Filament\Tables\Actions\DeleteAction;
-use Filament\Tables\Actions\DeleteBulkAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -90,9 +86,9 @@ class TelegramBotResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => \App\Filament\Dashboard\Resources\TelegramBotResource\Pages\ListTelegramBots::route('/'),
-            'create' => \App\Filament\Dashboard\Resources\TelegramBotResource\Pages\CreateTelegramBot::route('/create'),
-            'edit' => \App\Filament\Dashboard\Resources\TelegramBotResource\Pages\EditTelegramBot::route('/{record}/edit'),
+            'index' => TelegramBotResource\Pages\ListTelegramBots::route('/'),
+            'create' => TelegramBotResource\Pages\CreateTelegramBot::route('/create'),
+            'edit' => TelegramBotResource\Pages\EditTelegramBot::route('/{record}/edit'),
         ];
     }
 

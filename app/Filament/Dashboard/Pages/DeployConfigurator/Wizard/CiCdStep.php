@@ -9,7 +9,6 @@ use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Filament\Forms;
 use Filament\Support\Colors\Color;
 use Gitlab\Exception\RuntimeException;
-use Illuminate\Support\Collection;
 use Illuminate\Support\HtmlString;
 
 class CiCdStep extends Forms\Components\Wizard\Step

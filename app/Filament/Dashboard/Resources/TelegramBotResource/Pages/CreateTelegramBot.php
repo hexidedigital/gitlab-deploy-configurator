@@ -12,7 +12,6 @@ class CreateTelegramBot extends CreateRecord
     protected function getHeaderActions(): array
     {
         return [
-
         ];
     }
 }

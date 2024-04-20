@@ -46,6 +46,7 @@ class RepositoryParser
         foreach ($builders as $builder) {
             if ($isInDependencies($builder)) {
                 $frontendBuilder = $builder;
+
                 break;
             }
         }
