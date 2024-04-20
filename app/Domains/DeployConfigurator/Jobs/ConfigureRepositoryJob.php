@@ -3,18 +3,25 @@
 namespace App\Domains\DeployConfigurator\Jobs;
 
 use App\Domains\DeployConfigurator\CiCdTemplateRepository;
+use App\Domains\DeployConfigurator\ContentGenerators\DeployerPhpGenerator;
 use App\Domains\DeployConfigurator\Data\CiCdOptions;
 use App\Domains\DeployConfigurator\Data\ProjectDetails;
+use App\Domains\DeployConfigurator\Data\Stage\StageInfo;
 use App\Domains\DeployConfigurator\DeployConfigBuilder;
 use App\Domains\DeployConfigurator\Events\DeployConfigurationJobFailedEvent;
+use App\Domains\DeployConfigurator\LogWriter;
 use App\Domains\GitLab\Data\ProjectData;
 use App\Domains\GitLab\GitLabService;
+use App\Models\DeployProject;
 use App\Models\User;
 use App\Notifications\UserTelegramNotification;
+use App\Settings\GeneralSettings;
+use DefStudio\Telegraph\Keyboard\Keyboard;
+use DefStudio\Telegraph\Models\TelegraphBot;
+use DefStudio\Telegraph\Models\TelegraphChat;
 use Exception;
 use Filament\Notifications\Actions\Action;
 use Filament\Notifications\Notification;
-use GrahamCampbell\GitLab\GitLabManager;
 use HexideDigital\GitlabDeploy\DeployerState;
 use HexideDigital\GitlabDeploy\Gitlab\Tasks\GitlabVariablesCreator;
 use HexideDigital\GitlabDeploy\Gitlab\Variable;
@@ -25,18 +32,15 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Log\Logger;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use NotificationChannels\Telegram\TelegramMessage;
 use phpseclib3\Crypt\PublicKeyLoader;
 use phpseclib3\Net\SSH2;
-use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 use Throwable;
@@ -50,47 +54,43 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     /** moik.o / laravel 11 playground */
     public const TEST_PROJECT = 689;
-
-    public int $timeout = 120;
-    public int $tries = 2;
-
-    private ProjectData $gitlabProject;
-
-    private User $user;
     private array $testingProjects = [
         ConfigureRepositoryJob::TEST_PROJECT,
     ];
+
+    // job configurations
+    public int $timeout = 120;
+    public int $tries = 2;
+    public bool $deleteWhenMissingModels = true;
+
+    // uses only in job
+    private User $user;
+
+    // across tasks
+    private ProjectData $gitlabProject;
     private string $deployFolder;
     private DeployerState $state;
     private Filesystem|FilesystemAdapter $remoteFilesystem;
-    private LoggerInterface|Logger $logger;
-
+    private LogWriter $logWriter;
     private GitLabService $gitLabService;
+    private ProjectDetails $projectDetails;
+    private CiCdOptions $ciCdOptions;
+    private array $deployConfigurations;
+    private StageInfo $currentStageInfo;
 
     public function __construct(
         public int $userId,
-        public ProjectDetails $projectDetails,
-        public CiCdOptions $ciCdOptions,
-        public array $deployConfigurations,
-        public array $stages,
-        public Carbon $startAt,
+        public DeployProject $deployProject,
     ) {
     }
 
-    public function handle(DeployConfigBuilder $deployConfigBuilder, GitLabService $gitLabService): void
+    public function handle(DeployConfigBuilder $deployConfigBuilder): void
     {
-        $this->logger = Log::channel('daily');
+        $this->setup();
 
         $projectId = $this->projectDetails->project_id;
 
-        $this->logger->withContext([
-            'project_id' => $projectId,
-            'user_id' => $this->userId,
-        ]);
-
-        $this->logger->info('Start configuring repository for project');
-
-        $this->gitLabService = $gitLabService->authenticateUsing($this->projectDetails->token, $this->projectDetails->domain);
+        $this->logWriter->info('Start configuring repository for project');
 
         $project = $this->gitLabService->findProject($projectId);
         if (is_null($project)) {
@@ -100,44 +100,82 @@ class ConfigureRepositoryJob implements ShouldQueue
         }
 
         $this->gitlabProject = $project;
-        $this->user = User::findOrFail($this->userId);
 
         $this->user->notify(new UserTelegramNotification(TelegramMessage::create()->line("We started configuring '{$this->gitlabProject->name}' repository...")));
 
-        $this->cleanUpRepositoryForTesting();
+        (new CleanUpRepositoryForTestingAction(
+            $this->gitLabService,
+            $this->logWriter,
+            $this->gitlabProject,
+        ))->isTestingProject($this->isTestingProject())->execute();
 
         $this->prepareWorkingDirectoryForProjectSetup();
 
-        $this->logger->info('Prepare general configurations...');
+        $this->logWriter->info('Prepare general configurations...');
 
         // prepare general configurations
-        $deployConfigBuilder->setStagesList($this->stages);
+        $stages = $this->deployProject->deploy_payload['stages'];
+
+        $deployConfigBuilder->setStagesList($stages);
         $deployConfigBuilder->setProjectDetails($this->projectDetails);
 
-        $this->state = $this->makeDeployState();
+        $deployConfigurations = $deployConfigBuilder->buildDeployPrepareConfig();
+        $deployConfigurations['stages'] = $stages;
 
-        $this->logger->info('Processing stages...');
+        $this->state = $this->makeDeployState($deployConfigurations);
 
-        foreach ($this->stages as $stage) {
-            $stageName = $stage['name'];
+        $this->logWriter->info('Processing stages...');
 
-            $this->logger->withContext(['stage' => $stageName]);
+        foreach ($stages as $stage) {
+            $this->currentStageInfo = StageInfo::makeFromArray($stage);
 
-            $this->logger->info("Processing stage: {$stageName}");
+            $this->logWriter->getLogger()->withContext(['stage' => $this->currentStageInfo->name]);
+
+            $this->logWriter->info("Processing stage: {$this->currentStageInfo->name}");
 
             // prepare configurations for stage
-            $this->selectStage($stageName);
+            $this->selectStage();
 
             try {
-                $this->initSftpClient($stage);
+                $this->initSftpClient();
 
-                $this->executeTasksForStage($stageName, $deployConfigBuilder, $stage);
+                $this->executeTasksForStage();
 
-                $this->logger->info("Stage '{$stageName}' processed");
+                $this->logWriter->info("Stage '{$this->currentStageInfo->name}' processed");
 
-                $this->sendSuccessNotification($stageName);
+                $this->sendSuccessNotification();
+
+                $this->deployProject->update([
+                    'logs' => $this->logWriter->getLogBag(),
+                    'finished_at' => now(),
+                ]);
+
+                if ($this->user->canReceiveTelegramMessage()) {
+                    $gitlabPipelineUrl = "https://gitlab.hexide-digital.com/{$this->gitlabProject->path_with_namespace}/-/pipelines";
+                    TelegraphChat::query()
+                        ->where('telegraph_bot_id', TelegraphBot::where('name', app(GeneralSettings::class)->mainTelegramBot))
+                        ->where('chat_id', $this->user->telegram_id)
+                        ->first()
+                        ->message(
+                            "We have finished configuring '{$this->gitlabProject->name}' repository.\n" .
+                            'Time elapsed: ' . now()->shortAbsoluteDiffForHumans(Carbon::parse($this->deployProject->deploy_payload['openedAt']))
+                        )
+                        ->keyboard(Keyboard::make()->button('GitLab pipeline')->url($gitlabPipelineUrl))
+                        ->send();
+                }
+
+                if ($this->isTestingProject() && empty($exception)) {
+                    $this->release(60 * 2);
+                }
             } catch (Throwable $exception) {
-                $this->logger->error('Failed to process stage ' . $stageName, [
+                $this->logWriter->error('Failed to process stage ' . $this->currentStageInfo->name, [
+                    'exception' => $exception->getMessage(),
+                ]);
+
+                $this->deployProject->increment('fail_counts');
+                $this->deployProject->update([
+                    'logs' => $this->logWriter->getLogBag(),
+                    'failed_at' => now(),
                     'exception' => $exception->getMessage(),
                 ]);
 
@@ -146,29 +184,34 @@ class ConfigureRepositoryJob implements ShouldQueue
                 throw $exception;
             }
         }
+    }
 
-        $gitlabPipelineUrl = "https://gitlab.hexide-digital.com/{$this->gitlabProject->path_with_namespace}/-/pipelines";
-        $finishAt = now();
-        $this->user->notify(
-            new UserTelegramNotification(
-                TelegramMessage::create()
-                    ->line("We have finished configuring '{$this->gitlabProject->name}' repository.")
-                    ->line('Time elapsed: ' . $finishAt->shortAbsoluteDiffForHumans($this->startAt))
-                    ->button('GitLab pipelines', $gitlabPipelineUrl)
-            )
-        );
+    protected function setup(): void
+    {
+        $this->projectDetails = ProjectDetails::makeFromArray($this->deployProject->deploy_payload['projectDetails']);
+        $this->ciCdOptions = CiCdOptions::makeFromArray($this->deployProject->deploy_payload['ciCdOptions']);
 
-        if ($this->isTestingProject() && empty($exception)) {
-            $this->release(60 * 2);
-        }
+        $this->user = User::findOrFail($this->userId);
+
+        $this->gitLabService = resolve(GitLabService::class)->authenticateUsing($this->projectDetails->token);
+
+        $this->setupLogger();
+    }
+
+    protected function setupLogger(): void
+    {
+        $this->logWriter = new LogWriter();
+        $this->logWriter->getLogger()->withContext([
+            'project_id' => $this->projectDetails->project_id,
+            'user_id' => $this->userId,
+        ]);
     }
 
     public function failed(Throwable $exception): void
     {
-        $this->logger = Log::channel('daily');
-        $this->user = User::findOrFail($this->userId);
+        $this->setup();
 
-        $this->logger->error('Failed configuring repository', [
+        $this->logWriter->error('Failed configuring repository', [
             'exception' => $exception->getMessage(),
         ]);
 
@@ -177,7 +220,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         DeployConfigurationJobFailedEvent::dispatch($this->user, $this->gitlabProject, $exception);
     }
 
-    private function sendSuccessNotification(string $stageName): void
+    private function sendSuccessNotification(): void
     {
         $gitlabPipelineUrl = "https://gitlab.hexide-digital.com/{$this->gitlabProject->path_with_namespace}/-/pipelines";
 
@@ -186,19 +229,19 @@ class ConfigureRepositoryJob implements ShouldQueue
                 TelegramMessage::create()
                     ->line('Your repository has been configured successfully.')
                     ->line('Project: ' . $this->gitlabProject->name)
-                    ->line('Stage: ' . $stageName)
+                    ->line('Stage: ' . $this->currentStageInfo->name)
                     ->line('Time: ' . now()->timezone('Europe/Kiev')->format('Y-m-d H:i:s'))
                     ->button("Open {$this->state->getStage()->server->domain}", $this->state->getStage()->server->domain)
             )
         );
 
-        $this->logger->info("Repository '{$this->gitlabProject->name}' configured successfully");
+        $this->logWriter->info("Repository '{$this->gitlabProject->name}' configured successfully");
 
         Notification::make()
             ->success()
             ->icon('heroicon-o-rocket-launch')
             ->title("Repository '{$this->gitlabProject->name}'")
-            ->body("Stage '{$stageName}' for repository processed successfully")
+            ->body("Stage '{$this->currentStageInfo->name}' for repository processed successfully")
             ->actions([
                 Action::make('view')
                     ->label('View in GitLab')
@@ -212,103 +255,70 @@ class ConfigureRepositoryJob implements ShouldQueue
             ])->sendToDatabase($this->user);
     }
 
-    private function cleanUpRepositoryForTesting(): void
-    {
-        $this->logger->debug("Cleaning up repository '{$this->gitlabProject->name}'");
-
-        if (!$this->isTestingProject()) {
-            $this->logger->debug("Repository '{$this->gitlabProject->name}' is not in testing projects");
-
-            return;
-        }
-
-        // delete variables
-        $this->logger->debug("Deleting variables for project '{$this->gitlabProject->name}'");
-        collect($this->getGitLabManager()->projects()->variables($this->gitlabProject->id))
-            // remove all variables except the ones with environment_scope = '*'
-            ->reject(fn (array $variable) => str($variable['environment_scope']) == '*')
-            ->each(fn (array $variable) => $this->getGitLabManager()->projects()->removeVariable($this->gitlabProject->id, $variable['key'], [
-                'filter' => ['environment_scope' => $variable['environment_scope']],
-            ]));
-
-        // delete test branches
-        $this->logger->debug("Deleting test branches for project '{$this->gitlabProject->name}'");
-        collect($this->getGitLabManager()->repositories()->branches($this->gitlabProject->id))
-            ->reject(fn (array $branch) => str($branch['name'])->startsWith(['develop']))
-            ->filter(fn (array $branch) => str($branch['name'])->startsWith(['test', 'dev']))
-            ->each(fn (array $branch) => $this->getGitLabManager()->repositories()->deleteBranch($this->gitlabProject->id, $branch['name']));
-
-        // delete deploy keys
-        $this->logger->debug("Deleting deploy keys for project '{$this->gitlabProject->name}'");
-        collect($this->getGitLabManager()->projects()->deployKeys($this->gitlabProject->id))
-            ->filter(fn (array $key) => str($key['title'])->startsWith(['web-templatelte']))
-            ->each(fn (array $key) => $this->getGitLabManager()->projects()->deleteDeployKey($this->gitlabProject->id, $key['id']));
-
-        $this->logger->debug("Repository '{$this->gitlabProject->name}' cleaned up");
-    }
-
-    private function executeTasksForStage(string $stageName, DeployConfigBuilder $deployConfigBuilder, array $stage): void
+    private function executeTasksForStage(): void
     {
         // task 1 - generate ssh keys on localhost
-        $this->logger->info('Step 1: Generating SSH keys on localhost');
-        $this->taskGenerateSshKeysOnLocalhost($stage);
+        $this->logWriter->info('Step 1: Generating SSH keys on localhost');
+        $this->taskGenerateSshKeysOnLocalhost();
 
         // task 2 - copy ssh keys on remote host
         // get content pub key and put to auth_keys on server
-        $this->logger->info('Step 2: Copying SSH keys on remote host');
-        $this->taskCopySshKeysOnRemoteHost($stage);
+        $this->logWriter->info('Step 2: Copying SSH keys on remote host');
+        $this->taskCopySshKeysOnRemoteHost();
 
         // task 3 - generate ssh keys on remote host
         // fetch existing keys, or generate new one locally (specify user and login) or on remove (need execute)
-        $this->logger->info('Step 3: Generating SSH keys on remote host');
-        $this->taskGenerateSshKeysOnRemoteHost($stageName);
+        $this->logWriter->info('Step 3: Generating SSH keys on remote host');
+        $this->taskGenerateSshKeysOnRemoteHost();
 
         // task 4 - create project variables on gitlab
         // create and configure gitlab variables
-        $this->logger->info('Step 4: Creating project variables on GitLab');
+        $this->logWriter->info('Step 4: Creating project variables on GitLab');
         $this->taskCreateProjectVariables();
 
         // task 5 - add gitlab to known hosts on remote host
         // append content to known_hosts file
-        $this->logger->info('Step 5: Adding GitLab to known hosts on remote host');
+        $this->logWriter->info('Step 5: Adding GitLab to known hosts on remote host');
         $this->taskAddGitlabToKnownHostsOnRemoteHost();
 
         // task 6 - prepare and copy dot env file for remote
         // copy file to remote (create folder)
-        $this->logger->info('Step 6: Preparing and copying .env file for remote');
+        $this->logWriter->info('Step 6: Preparing and copying .env file for remote');
         $this->taskPrepareAndCopyDotEnvFileForRemote();
 
         // task 7 - push branch and trigger pipeline (run first deploy command)
         // create deploy branch with new files in repository
-        $this->logger->info('Step 7: Creating commit with config files');
-        $this->taskCreateCommitWithConfigFiles($stageName, $deployConfigBuilder);
+        $this->logWriter->info('Step 7: Creating commit with config files');
+        $this->taskCreateCommitWithConfigFiles();
 
         // task 8 - insert custom aliases on remote host
         // create or append file content
-        $this->logger->info('Step 8: Inserting custom aliases on remote host');
-        $this->taskInsertCustomAliasesOnRemoteHost($stage);
+        $this->logWriter->info('Step 8: Inserting custom aliases on remote host');
+        $this->taskInsertCustomAliasesOnRemoteHost();
     }
 
-    private function taskCreateCommitWithConfigFiles(string $stageName, DeployConfigBuilder $deployConfigBuilder): void
+    private function taskCreateCommitWithConfigFiles(): void
     {
         // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
-        $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($this->ciCdOptions->template_type, $this->ciCdOptions->template_version);
+        $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($this->ciCdOptions->template_group, $this->ciCdOptions->template_key);
+
+        $gitlabCiYmlContent = view('gitlab-ci-yml', [
+            'templateType' => $this->ciCdOptions->template_group,
+            'templateName' => $templateInfo->templateName,
+            'nodeVersion' => $this->ciCdOptions->node_version,
+            'buildStageEnabled' => $this->ciCdOptions->isStageEnabled('build'),
+        ])->render();
 
         $actions = collect([
             [
                 // "action" => "create",
                 "file_path" => ".gitlab-ci.yml",
-                "content" => view('gitlab-ci-yml', [
-                    'templateType' => $this->ciCdOptions->template_type,
-                    'templateName' => $templateInfo['templateName'],
-                    'nodeVersion' => $this->ciCdOptions->node_version,
-                    'buildStageEnabled' => $this->ciCdOptions->isStageEnabled('build'),
-                ])->render(),
+                "content" => $gitlabCiYmlContent,
             ],
             [
                 // "action" => "create",
                 "file_path" => "deploy.php",
-                "content" => $deployConfigBuilder->contentForDeployerScript($stageName),
+                "content" => (new DeployerPhpGenerator($this->projectDetails))->render($this->currentStageInfo),
             ],
         ])->map(function (array $action) {
             $generatedContent = $action['content'];
@@ -337,21 +347,21 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         // if files without changes, just create branch
         if ($actions->isEmpty()) {
-            $this->logger->info('No changes in config files');
+            $this->logWriter->info('No changes in config files');
 
-            $this->logger->info("Creating branch '{$stageName}' for deployment");
+            $this->logWriter->info("Creating branch '{$this->currentStageInfo->name}' for deployment");
 
-            $branch = $this->getGitLabManager()->repositories()
-                ->createBranch($this->gitlabProject->id, $stageName, $this->gitlabProject->default_branch);
+            $branch = $this->gitLabService->gitLabManager()->repositories()
+                ->createBranch($this->gitlabProject->id, $this->currentStageInfo->name, $this->gitlabProject->default_branch);
 
-            $this->logger->debug('branch response', ['branch' => $branch]);
+            $this->logWriter->debug('branch response', ['branch' => $branch]);
 
             return;
         }
 
         // otherwise, create commit with new files
-        $commit = $this->getGitLabManager()->repositories()->createCommit($this->gitlabProject->id, [
-            "branch" => $stageName,
+        $commit = $this->gitLabService->gitLabManager()->repositories()->createCommit($this->gitlabProject->id, [
+            "branch" => $this->currentStageInfo->name,
             "start_branch" => $this->gitlabProject->default_branch,
             "commit_message" => "Configure deployment 🚀",
             "author_name" => "Deploy Configurator Bot",
@@ -359,15 +369,10 @@ class ConfigureRepositoryJob implements ShouldQueue
             "actions" => $actions->all(),
         ]);
 
-        $this->logger->debug('commit response', ['commit' => $commit]);
+        $this->logWriter->debug('commit response', ['commit' => $commit]);
     }
 
-    private function getGitLabManager(): GitLabManager
-    {
-        return $this->gitLabService->gitLabManager();
-    }
-
-    private function makeDeployState(): DeployerState
+    private function makeDeployState(array $deployConfigurations): DeployerState
     {
         // config([
         //    'gitlab-deploy.working-dir' => "{$this->deployFolder}/deployer",
@@ -378,16 +383,15 @@ class ConfigureRepositoryJob implements ShouldQueue
         // ]);
 
         $state = new DeployerState();
-        $builder = app(ConfigurationBuilder::class);
-        $configurations = $builder->build($this->deployConfigurations);
+        $configurations = app(ConfigurationBuilder::class)->build($deployConfigurations);
         $state->setConfigurations($configurations);
 
         return $state;
     }
 
-    private function selectStage(string $stageName): void
+    private function selectStage(): void
     {
-        $this->state->setStage($this->state->getConfigurations()->stageBag->get($stageName));
+        $this->state->setStage($this->state->getConfigurations()->stageBag->get($this->$this->currentStageInfo->$this->name));
         $this->state->setupReplacements();
         $this->state->setupGitlabVariables();
 
@@ -403,28 +407,28 @@ class ConfigureRepositoryJob implements ShouldQueue
         // automatically enable CI/CD
         $variable = new Variable(
             key: 'CI_ENABLED',
-            scope: $stageName,
+            scope: $this->currentStageInfo->name,
             value: '1',
         );
         $this->state->getGitlabVariablesBag()->add($variable);
     }
 
-    private function initSftpClient(array $stage): void
+    private function initSftpClient(): void
     {
-        $this->logger->info('Initializing SFTP client');
+        $this->logWriter->info('Initializing SFTP client');
 
         $variables = $this->state->getReplacements();
 
-        $sshOptions = data_get($stage, 'options.ssh');
+        $sshOptions = $this->currentStageInfo->options->ssh;
 
         $host = $variables->get('DEPLOY_SERVER'); // ip or domain
         $login = $variables->get('DEPLOY_USER');
 
-        $useCustomSshKeys = data_get($sshOptions, 'use_custom_ssh_key', false);
+        $useCustomSshKeys = $sshOptions->useCustomSshKey;
         if ($useCustomSshKeys) {
             $key = PublicKeyLoader::load(
-                key: $privateKey = data_get($sshOptions, 'private_key'),
-                password: data_get($sshOptions, 'private_key_password') ?: false
+                key: $privateKey = $sshOptions->privateKey,
+                password: $sshOptions->privateKeyPassword ?: false
             );
 
             File::ensureDirectoryExists(File::dirname($pathKeyPath = "{$this->deployFolder}/local_ssh/id_rsa"));
@@ -433,17 +437,17 @@ class ConfigureRepositoryJob implements ShouldQueue
             $key = $variables->get('DEPLOY_PASS');
         }
 
-        $this->logger->info('Checking connection to remote host');
+        $this->logWriter->info('Checking connection to remote host');
         $ssh = new SSH2($host, $port = $variables->get('SSH_PORT') ?: 22);
         if (!$ssh->login($login, $key)) {
-            $this->logger->error('Failed to connect with ssh', compact(['login', 'host', 'port', 'useCustomSshKeys']));
+            $this->logWriter->error('Failed to connect with ssh', compact(['login', 'host', 'port', 'useCustomSshKeys']));
 
             throw new RuntimeException('SSH Login failed');
         }
-        $this->logger->info('Connection to remote host established');
+        $this->logWriter->info('Connection to remote host established');
 
-        $root = data_get($stage, 'options.home_folder') ?: $this->resolveHomeDirectory();
-        $this->logger->debug("Using '{$root}' as root folder for sftp");
+        $root = $this->currentStageInfo->options->homeFolder;
+        $this->logWriter->debug("Using '{$root}' as root folder for sftp");
 
         // https://laravel.com/docs/filesystem#sftp-driver-configuration
         // https://flysystem.thephpleague.com/docs/adapter/sftp-v3
@@ -457,8 +461,8 @@ class ConfigureRepositoryJob implements ShouldQueue
                 'password' => $variables->get('DEPLOY_PASS'),
             ] : [
                 // Settings for SSH key based authentication with encryption password...
-                'privateKey' => data_get($sshOptions, 'private_key'),
-                'passphrase' => data_get($sshOptions, 'private_key_password'),
+                'privateKey' => $sshOptions->privateKey,
+                'passphrase' => $sshOptions->privateKeyPassword,
             ]),
 
             // Settings for file / directory permissions...
@@ -474,13 +478,13 @@ class ConfigureRepositoryJob implements ShouldQueue
         ]);
     }
 
-    private function taskGenerateSshKeysOnLocalhost(array $stage): void
+    private function taskGenerateSshKeysOnLocalhost(): void
     {
-        $sshOptions = data_get($stage, 'options.ssh');
-        $useCustomSshKeys = data_get($sshOptions, 'use_custom_ssh_key', false);
+        $sshOptions = $this->currentStageInfo->options->ssh;
+        $useCustomSshKeys = $sshOptions->useCustomSshKey;
 
         if ($useCustomSshKeys) {
-            $identityFileContent = data_get($sshOptions, 'private_key') ?: '';
+            $identityFileContent = $sshOptions->privateKey ?: '';
         } else {
             File::ensureDirectoryExists("{$this->deployFolder}/local_ssh");
 
@@ -494,7 +498,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         }
 
         if ($identityFileContent === '') {
-            $this->logger->warning('Empty SSH private key content. Skip creating "SSH_PRIVATE_KEY" variable');
+            $this->logWriter->warning('Empty SSH private key content. Skip creating "SSH_PRIVATE_KEY" variable');
 
             return;
         }
@@ -511,13 +515,13 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function prepareWorkingDirectoryForProjectSetup(): void
     {
-        $this->logger->debug('Preparing working directory for project setup');
+        $this->logWriter->debug('Preparing working directory for project setup');
 
         $this->deployFolder = Storage::disk('local')->path('deploy_folder/project_' . $this->gitlabProject->id);
 
         File::ensureDirectoryExists($this->deployFolder);
 
-        $this->logger->debug('Working directory prepared');
+        $this->logWriter->debug('Working directory prepared');
     }
 
     private function generateIdentityKey(string $identityFilePath, string $comment): void
@@ -529,7 +533,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         $status = (new Process($command, $this->deployFolder))
             ->setTimeout(0)
             ->run(function ($type, $output) {
-                $this->logger->debug($output);
+                $this->logWriter->debug($output);
             });
 
         if ($status !== 0) {
@@ -542,10 +546,10 @@ class ConfigureRepositoryJob implements ShouldQueue
         $variableBag = $this->state->getGitlabVariablesBag();
 
         $templateRepository = new CiCdTemplateRepository();
-        $templateInfo = $templateRepository->getTemplateInfo($this->ciCdOptions->template_type, $this->ciCdOptions->template_version);
+        $templateInfo = $templateRepository->getTemplateInfo($this->ciCdOptions->template_group, $this->ciCdOptions->template_key);
 
         // create variables for template
-        $withDisableStages = $templateInfo['configure_stages'] ?? false;
+        $withDisableStages = $templateInfo->allowToggleStages;
         if ($withDisableStages) {
             $variableBag->add(
                 new Variable(
@@ -563,7 +567,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             );
         }
 
-        $gitlabVariablesCreator = new GitlabVariablesCreator($this->getGitLabManager());
+        $gitlabVariablesCreator = new GitlabVariablesCreator($this->gitLabService->gitLabManager());
         $gitlabVariablesCreator
             ->setProject($this->state->getConfigurations()->project)
             ->setVariableBag($variableBag);
@@ -573,27 +577,27 @@ class ConfigureRepositoryJob implements ShouldQueue
         // print error messages
         // todo - store error messages
         if ($fails = $gitlabVariablesCreator->getFailMassages()) {
-            $this->logger->error('Failed to create variables:');
+            $this->logWriter->error('Failed to create variables:');
             foreach ($fails as $failMessage) {
-                $this->logger->error("GitLab fail message: {$failMessage}");
+                $this->logWriter->error("GitLab fail message: {$failMessage}");
             }
         }
     }
 
-    private function taskCopySshKeysOnRemoteHost(array $stage): void
+    private function taskCopySshKeysOnRemoteHost(): void
     {
-        $sshOptions = data_get($stage, 'options.ssh');
-        $useCustomSshKeys = data_get($sshOptions, 'use_custom_ssh_key', false);
+        $sshOptions = $this->currentStageInfo->options->ssh;
+        $useCustomSshKeys = $sshOptions->useCustomSshKey;
 
         if ($useCustomSshKeys) {
-            $this->logger->warning('Custom SSH keys enabled. Skip copying keys to remote host');
+            $this->logWriter->warning('Custom SSH keys enabled. Skip copying keys to remote host');
 
             return;
         }
 
         $identityFilePath = $this->state->getReplacements()->get('IDENTITY_FILE_PUB');
         if (!File::exists($identityFilePath)) {
-            $this->logger->error('Can not find public key file. Skip copying keys to remote host');
+            $this->logWriter->error('Can not find public key file. Skip copying keys to remote host');
 
             return;
         }
@@ -612,13 +616,13 @@ class ConfigureRepositoryJob implements ShouldQueue
         }
     }
 
-    private function taskGenerateSshKeysOnRemoteHost(string $stageName): void
+    private function taskGenerateSshKeysOnRemoteHost(): void
     {
         $privateKeyPath = '.ssh/id_rsa';
         $publicKeyPath = "{$privateKeyPath}.pub";
 
         if (!$this->remoteFilesystem->fileExists($privateKeyPath)) {
-            $locallyGeneratedPrivateKeyPath = "{$this->deployFolder}/remote/{$stageName}/ssh/id_rsa";
+            $locallyGeneratedPrivateKeyPath = "{$this->deployFolder}/remote/{$this->currentStageInfo->name}/ssh/id_rsa";
             File::ensureDirectoryExists(File::dirname($locallyGeneratedPrivateKeyPath));
 
             $this->generateIdentityKey($locallyGeneratedPrivateKeyPath, $this->state->getReplacements()->replace('{{USER}}@{{HOST}}'));
@@ -676,7 +680,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         $envExampleFileContent = $this->gitLabService->getFileContent($this->gitlabProject, '.env.example');
 
         // /home/user
-        $homeDirectory = $this->resolveHomeDirectory();
+        $homeDirectory = $this->currentStageInfo->options->homeFolder;
         // /home/user/web/domain.com/public_html
         $baseDir = $this->state->getReplacements()->replace($this->state->getStage()->options->baseDir);
 
@@ -742,16 +746,16 @@ class ConfigureRepositoryJob implements ShouldQueue
         return 'base64:' . base64_encode(Encrypter::generateKey(config('app.cipher')));
     }
 
-    private function taskInsertCustomAliasesOnRemoteHost(array $stage): void
+    private function taskInsertCustomAliasesOnRemoteHost(): void
     {
-        $options = data_get($stage, 'options.bash_aliases');
-        if (!data_get($options, 'insert')) {
-            $this->logger->info('Custom aliases not enabled for stage');
+        $options = $this->currentStageInfo->options->bashAliases;
+        if (!$options->insert) {
+            $this->logWriter->info('Custom aliases not enabled for stage');
 
             return;
         }
 
-        $this->logger->info('Inserting custom aliases on remote host');
+        $this->logWriter->info('Inserting custom aliases on remote host');
 
         $currentContent = $this->remoteFilesystem->fileExists('.bash_aliases')
             ? $this->remoteFilesystem->get('.bash_aliases')
@@ -760,33 +764,24 @@ class ConfigureRepositoryJob implements ShouldQueue
         $content = str($currentContent);
         $variableBag = $this->state->getGitlabVariablesBag();
         $bashAliasesContent = view('bash_aliases', [
-            'artisanCompletion' => data_get($options, 'artisanCompletion') && !$content->contains(['complete -F', '_artisan']),
-            'artisanAliases' => data_get($options, 'artisanAliases') && !$content->contains(['alias artisan=', 'alias a=']),
-            'composerAlias' => data_get($options, 'composerAlias') && !$content->contains(['alias pcomopser=']),
-            'folderAliases' => data_get($options, 'folderAliases') && !$content->contains(['alias cur=']),
-            'BIN_COMPOSER' => $variableBag->get('BIN_COMPOSER'),
-            'BIN_PHP' => $variableBag->get('BIN_PHP'),
-            'DEPLOY_BASE_DIR' => $variableBag->get('DEPLOY_BASE_DIR'),
+            'artisanCompletion' => $options->artisanCompletion && !$content->contains(['complete -F', '_artisan']),
+            'artisanAliases' => $options->artisanAliases && !$content->contains(['alias artisan=', 'alias a=']),
+            'composerAlias' => $options->composerAlias && !$content->contains(['alias pcomopser=']),
+            'folderAliases' => $options->folderAliases && !$content->contains(['alias cur=']),
+            'BIN_COMPOSER' => $variableBag->get('BIN_COMPOSER')?->value,
+            'BIN_PHP' => $variableBag->get('BIN_PHP')?->value,
+            'DEPLOY_BASE_DIR' => $variableBag->get('DEPLOY_BASE_DIR')?->value,
         ])->render();
 
         $newContent = trim($currentContent . PHP_EOL . PHP_EOL . trim($bashAliasesContent));
 
         $this->remoteFilesystem->put('.bash_aliases', $newContent);
 
-        $this->logger->info('Custom aliases inserted');
+        $this->logWriter->info('Custom aliases inserted');
     }
 
-    public function isTestingProject(): bool
+    private function isTestingProject(): bool
     {
         return in_array($this->gitlabProject->id, $this->testingProjects);
-    }
-
-    public function resolveHomeDirectory(): string
-    {
-        $variables = $this->state->getReplacements();
-
-        $login = $variables->get('DEPLOY_USER');
-
-        return "/home/{$login}";
     }
 }

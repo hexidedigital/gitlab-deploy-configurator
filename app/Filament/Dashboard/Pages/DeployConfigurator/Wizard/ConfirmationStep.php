@@ -60,13 +60,13 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                             Forms\Components\Fieldset::make('Repository and CI/CD')
                                 ->columns()
                                 ->schema([
-                                    Forms\Components\Placeholder::make('placeholder.ci_cd_options.template_type')
+                                    Forms\Components\Placeholder::make('placeholder.ci_cd_options.template_group')
                                         ->label('CI/CD template type')
-                                        ->content(fn (Forms\Get $get) => $get('ci_cd_options.template_type')),
+                                        ->content(fn (Forms\Get $get) => $get('ci_cd_options.template_group')),
 
-                                    Forms\Components\Placeholder::make('placeholder.ci_cd_options.template_version')
+                                    Forms\Components\Placeholder::make('placeholder.ci_cd_options.template_key')
                                         ->label('CI/CD template version')
-                                        ->content(fn (Forms\Get $get) => $get('ci_cd_options.template_version')),
+                                        ->content(fn (Forms\Get $get) => $get('ci_cd_options.template_key')),
                                 ]),
 
                             Forms\Components\Repeater::make('stages')

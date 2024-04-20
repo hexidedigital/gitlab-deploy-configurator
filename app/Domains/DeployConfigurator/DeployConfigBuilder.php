@@ -2,10 +2,11 @@
 
 namespace App\Domains\DeployConfigurator;
 
+use App\Domains\DeployConfigurator\ContentGenerators\DeployerPhpGenerator;
 use App\Domains\DeployConfigurator\Data\ProjectDetails;
+use App\Domains\DeployConfigurator\Data\Stage\StageInfo;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Symfony\Component\Yaml\Yaml;
 
 class DeployConfigBuilder
@@ -72,6 +73,7 @@ class DeployConfigBuilder
                         // additional keys, not used in yaml file
                         'home-folder' => data_get($stageConfig, 'options.home_folder'),
                         'ssh' => data_get($stageConfig, 'options.ssh'),
+                        'bash_aliases' => data_get($stageConfig, 'options.bash_aliases'),
                     ],
                     ...collect($this->getAccessInfo($stageName))
                         ->only(['database', 'mail', 'server'])
@@ -98,6 +100,7 @@ class DeployConfigBuilder
                     // additional keys, not used in yaml file
                     'home-folder',
                     'ssh',
+                    'bash_aliases',
                 ])->all();
 
                 return $stage;
@@ -149,32 +152,18 @@ class DeployConfigBuilder
 
     public function contentForDeployerScript(?string $stageName = null, bool $generateWithVariables = false): string
     {
-        $stageConfig = $this->findStageConfig($stageName);
+        $stagePayload = $this->findStageConfig($stageName);
 
-        $renderVariables = !is_null($stageName) && is_array($stageConfig) && $generateWithVariables;
+        $stageConfig = $stagePayload ? StageInfo::makeFromArray([
+            'name' => $stagePayload['name'],
+            'options' => $stagePayload['options'],
+            ...$stagePayload['accessInfo'],
+        ]) : null;
 
-        return view('deployer', [
-            'applicationName' => $this->projectDetails->name,
-            'githubOathToken' => config('services.gitlab.deploy_token'),
-            'renderVariables' => $renderVariables,
-            ...($renderVariables ? [
-                'CI_REPOSITORY_URL' => $this->projectDetails->git_url,
-                'CI_COMMIT_REF_NAME' => $stageName,
-                'BIN_PHP' => data_get($stageConfig, 'options.bin_php'),
-                'BIN_COMPOSER' => data_get($stageConfig, 'options.bin_composer'),
-                'DEPLOY_SERVER' => $server = data_get($stageConfig, 'accessInfo.server.host'),
-                'DEPLOY_USER' => $user = data_get($stageConfig, 'accessInfo.server.login'),
-                'DEPLOY_BASE_DIR' => Str::replace(
-                    ['{{HOST}}', '{{USER}}'],
-                    [$server, $user],
-                    data_get($stageConfig, 'options.base_dir_pattern')
-                ),
-                'SSH_PORT' => data_get($stageConfig, 'accessInfo.server.port', 22),
-            ] : []),
-        ])->render();
+        return (new DeployerPhpGenerator($this->projectDetails))->render($stageConfig, $generateWithVariables);
     }
 
-    private function findStageConfig(?string $stageName): ?array
+    public function findStageConfig(?string $stageName): ?array
     {
         return $this->stagesList
             ->first(fn ($stage) => data_get($stage, 'name') === $stageName);

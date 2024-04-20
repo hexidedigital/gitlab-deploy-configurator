@@ -2,6 +2,7 @@
 
 namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
+use App\Domains\DeployConfigurator\Data\CodeInfoDetails;
 use App\Domains\DeployConfigurator\DeployHelper;
 use App\Domains\GitLab\Data\ProjectData;
 use App\Domains\GitLab\ProjectValidator;
@@ -73,8 +74,9 @@ trait WithProjectInfoManage
             ->bail()
             ->defaults()
             ->rule('is_laravel_project', function (ProjectData $projectData, Closure $fail) {
-                $codeInfo = data_get($this, 'data.projectInfo.codeInfo');
-                if (empty($codeInfo) || data_get($codeInfo, 'is_laravel')) {
+                $data = data_get($this, 'data.projectInfo.codeInfo');
+                $codeInfo = CodeInfoDetails::makeFromArray($data ?: []);
+                if (empty($data) || $codeInfo->isLaravel) {
                     return;
                 }
 
@@ -107,25 +109,28 @@ trait WithProjectInfoManage
 
         $codeInfo = collect()
             ->merge($this->parseTemplateForLaravel($project))
-            ->merge($this->determineProjectFrontendBuilder($project));
+            ->merge($this->determineProjectFrontendBuilder($project))
+            ->all();
+
+        $codeInfo = CodeInfoDetails::makeFromArray($codeInfo);
 
         $this->fill([
-            'data.projectInfo.codeInfo' => $codeInfo->all(),
+            'data.projectInfo.codeInfo' => $codeInfo->toArray(),
         ]);
 
         $validator = $this->getProjectValidator($project)
             ->bail(false)
             ->validate();
 
-        if (data_get($this, 'data.projectInfo.codeInfo.is_laravel')) {
+        if ($codeInfo->isLaravel) {
             $this->fill(Arr::dot([
-                'template_type' => 'backend',
-                'template_version' => 'laravel_3_0',
+                'template_group' => 'backend',
+                'template_key' => 'laravel_3_0',
             ], 'data.ci_cd_options.'));
         } else {
             $this->fill(Arr::dot([
-                'template_type' => 'frontend',
-                'template_version' => null,
+                'template_group' => 'frontend',
+                'template_key' => null,
             ], 'data.ci_cd_options.'));
         }
 

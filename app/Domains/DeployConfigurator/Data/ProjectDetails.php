@@ -2,7 +2,9 @@
 
 namespace App\Domains\DeployConfigurator\Data;
 
-readonly class ProjectDetails
+use Illuminate\Contracts\Support\Arrayable;
+
+readonly class ProjectDetails implements Arrayable
 {
     public function __construct(
         public string $token,
@@ -11,7 +13,7 @@ readonly class ProjectDetails
         public string $name,
         public string $web_url,
         public string $git_url,
-        public array $codeInfo,
+        public CodeInfoDetails $codeInfo,
     ) {
     }
 
@@ -24,13 +26,20 @@ readonly class ProjectDetails
             name: data_get($projectInfo, 'name'),
             web_url: data_get($projectInfo, 'web_url'),
             git_url: data_get($projectInfo, 'git_url'),
-            codeInfo: [
-                'laravel_version' => data_get($projectInfo, 'codeInfo.laravel_version'),
-                'repository_template' => data_get($projectInfo, 'codeInfo.repository_template'),
-                'frontend_builder' => data_get($projectInfo, 'codeInfo.frontend_builder'),
-                'is_laravel' => data_get($projectInfo, 'codeInfo.is_laravel'),
-                'admin_panel' => data_get($projectInfo, 'codeInfo.admin_panel'),
-            ],
+            codeInfo: CodeInfoDetails::makeFromArray(data_get($projectInfo, 'codeInfo') ?: []),
         );
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'token' => $this->token,
+            'domain' => $this->domain,
+            'project_id' => $this->project_id,
+            'name' => $this->name,
+            'web_url' => $this->web_url,
+            'git_url' => $this->git_url,
+            'codeInfo' => $this->codeInfo->toArray(),
+        ];
     }
 }

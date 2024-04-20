@@ -2,8 +2,14 @@
 
 namespace App\Domains\DeployConfigurator;
 
+use App\Domains\DeployConfigurator\Data\TemplateInfo;
+
 class CiCdTemplateRepository
 {
+    /**
+     * @param string|null $repositoryType
+     * @return array<string, TemplateInfo>
+     */
     public function getTemplatesForType(?string $repositoryType): array
     {
         return match ($repositoryType) {
@@ -21,61 +27,80 @@ class CiCdTemplateRepository
         ];
     }
 
-    public function getTemplateInfo(string $repositoryType, string $template): ?array
+    public function getTemplateInfo(string $group, string $key): ?TemplateInfo
     {
-        return collect($this->getTemplatesForType($repositoryType))
-            ->get($template);
+        return collect($this->getTemplatesForType($group))->get($key);
     }
 
+    /**
+     * @return array<string, TemplateInfo>
+     */
     protected function backendTemplates(): array
     {
         return [
-            'laravel_2_0' => [
-                'name' => '2.0 - Webpack',
-                'disabled' => true,
-                'templateName' => 'laravel.2.0',
-            ],
-            'laravel_2_1' => [
-                'name' => '2.1 - Vite',
-                'disabled' => true,
-                'templateName' => 'laravel.2.1',
-            ],
-            'laravel_2_2' => [
-                'name' => '2.2 - Vite + Composer stage',
-                'disabled' => true,
-                'templateName' => 'laravel.2.2',
-            ],
-            'laravel_3_0' => [
-                'name' => '3.0 - Configurable',
-                'disabled' => false,
-                'templateName' => 'laravel.3.0',
-                'configure_stages' => true,
-                'change_node_version' => true,
-            ],
+            'laravel_2_0' => new TemplateInfo(
+                key: 'laravel_2_0',
+                name: '2.0 - Webpack',
+                templateName: 'laravel.2.0',
+                group: 'backend',
+                isDisabled: true,
+            ),
+            'laravel_2_1' => new TemplateInfo(
+                key: 'laravel_2_1',
+                name: '2.1 - Vite',
+                templateName: 'laravel.2.1',
+                group: 'backend',
+                isDisabled: true,
+            ),
+            'laravel_2_2' => new TemplateInfo(
+                key: 'laravel_2_2',
+                name: '2.2 - Vite + Composer stage',
+                templateName: 'laravel.2.2',
+                group: 'backend',
+                isDisabled: true,
+            ),
+            'laravel_3_0' => new TemplateInfo(
+                key: 'laravel_3_0',
+                name: '3.0 - Configurable',
+                templateName: 'laravel.3.0',
+                group: 'backend',
+                isDisabled: false,
+                allowToggleStages: true,
+                canSelectNodeVersion: true,
+            ),
         ];
     }
 
+    /**
+     * @return array<string, TemplateInfo>
+     */
     protected function frontendTemplates(): array
     {
         return [
-            'react_latest' => [
-                'name' => 'react (latest)',
-                'disabled' => false,
-                'templateName' => 'react.latest',
-                'change_node_version' => false,
-            ],
-            'vue_2_0' => [
-                'name' => 'vue (2.0)',
-                'disabled' => false,
-                'templateName' => 'vue.2.0',
-                'change_node_version' => false,
-            ],
-            'vue_latest' => [
-                'name' => 'vue (latest)',
-                'disabled' => false,
-                'templateName' => 'vue.latest',
-                'change_node_version' => true,
-            ],
+            'react_latest' => new TemplateInfo(
+                key: 'react_latest',
+                name: 'react (latest)',
+                templateName: 'react.latest',
+                group: 'frontend',
+                isDisabled: false,
+                canSelectNodeVersion: false,
+            ),
+            'vue_2_0' => new TemplateInfo(
+                key: 'vue_2_0',
+                name: 'vue (2.0)',
+                templateName: 'vue.2.0',
+                group: 'frontend',
+                isDisabled: false,
+                canSelectNodeVersion: false,
+            ),
+            'vue_latest' => new TemplateInfo(
+                key: 'vue_latest',
+                name: 'vue (latest)',
+                templateName: 'vue.latest',
+                group: 'frontend',
+                isDisabled: false,
+                canSelectNodeVersion: true,
+            ),
         ];
     }
 }

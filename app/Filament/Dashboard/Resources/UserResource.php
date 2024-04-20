@@ -4,6 +4,7 @@ namespace App\Filament\Dashboard\Resources;
 
 use App\Enums\Role;
 use App\Filament\Dashboard\Resources\UserResource\Pages;
+use App\Filament\Dashboard\Resources\UserResource\RelationManagers\DeployProjectsRelationManager;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Filament\Forms;
@@ -99,6 +100,14 @@ class UserResource extends Resource
     {
         return [
             'index' =>Pages\ListUsers::route('/'),
+            'edit' => Pages\EditUser::route('/{record}/edit'),
+        ];
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            DeployProjectsRelationManager::class,
         ];
     }
 

@@ -3,6 +3,8 @@
 namespace App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
 
 use App\Domains\DeployConfigurator\CiCdTemplateRepository;
+use App\Domains\DeployConfigurator\Data\CodeInfoDetails;
+use App\Domains\DeployConfigurator\Data\TemplateInfo;
 use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Filament\Forms;
 use Filament\Support\Colors\Color;
@@ -29,13 +31,13 @@ class CiCdStep extends Forms\Components\Wizard\Step
             ->icon('heroicon-o-server')
             ->columns()
             ->schema([
-                Forms\Components\Select::make('ci_cd_options.template_type')
+                Forms\Components\Select::make('ci_cd_options.template_group')
                     ->label('Template types')
                     ->columnSpan(1)
                     ->live()
                     ->options($this->templateRepository->templateTypes())
                     ->disableOptionWhen(function (string $value, Forms\Get $get) {
-                        if ($get('data.projectInfo.codeInfo.is_laravel')) {
+                        if (CodeInfoDetails::makeFromArray($get('data.projectInfo.codeInfo') ?: [])->isLaravel) {
                             return $value !== 'backend';
                         }
 
@@ -45,17 +47,19 @@ class CiCdStep extends Forms\Components\Wizard\Step
                         new HtmlString('See more details about <a href="https://gitlab.hexide-digital.com/packages/gitlab-templates" class="underline" target="_blank">GitLab Templates</a>')
                     )
                     ->afterStateUpdated(function (Forms\Set $set) {
-                        $set('ci_cd_options.template_version', null);
+                        $set('ci_cd_options.template_key', null);
                     })
                     ->required(),
 
-                Forms\Components\Select::make('ci_cd_options.template_version')
+                Forms\Components\Select::make('ci_cd_options.template_key')
                     ->label('CI/CD template version')
                     ->columnSpan(1)
-                    ->visible(fn (Forms\Get $get) => $get('ci_cd_options.template_type'))
+                    ->visible(fn (Forms\Get $get) => $get('ci_cd_options.template_group'))
                     ->live()
-                    ->options(fn (Forms\Get $get) => $this->retrieveCiCdTemplates($get('ci_cd_options.template_type'))->map(fn (array $template) => $template['name'])->all())
-                    ->disableOptionWhen(fn (string $value, Forms\Get $get) => data_get($this->retrieveCiCdTemplates($get('ci_cd_options.template_type')), "$value.disabled", true))
+                    ->options(fn (Forms\Get $get) => collect($this->templateRepository->getTemplatesForType($get('ci_cd_options.template_group')))
+                        ->map(fn (TemplateInfo $template) => $template->name)
+                        ->all())
+                    ->disableOptionWhen(fn (string $value, Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $value)?->isDisabled)
                     ->required(),
 
                 $this->getCiCdStagesToggleFieldSet(),
@@ -69,7 +73,7 @@ class CiCdStep extends Forms\Components\Wizard\Step
     protected function getCiCdStagesToggleFieldSet(): Forms\Components\Fieldset
     {
         return Forms\Components\Fieldset::make('Enabled CI\CD stages')
-            ->visible(fn (Forms\Get $get) => data_get($this->retrieveCiCdTemplates($get('ci_cd_options.template_type')), $get('ci_cd_options.template_version') . '.configure_stages'))
+            ->visible(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->allowToggleStages)
             ->columns(3)
             ->columnSpanFull()
             ->reactive()
@@ -100,8 +104,8 @@ class CiCdStep extends Forms\Components\Wizard\Step
         return Forms\Components\Select::make('ci_cd_options.node_version')
             ->label('Node.js version')
             ->visible(function (Forms\Get $get) {
-                return ($get('ci_cd_options.enabled_stages.build') || $get('ci_cd_options.template_type') === 'frontend')
-                    && data_get($this->retrieveCiCdTemplates($get('ci_cd_options.template_type')), $get('ci_cd_options.template_version') . '.change_node_version');
+                return ($get('ci_cd_options.enabled_stages.build') || $get('ci_cd_options.template_group') === 'frontend')
+                    && $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->canSelectNodeVersion;
             })
             ->columnSpan(1)
             ->options([
@@ -178,8 +182,8 @@ class CiCdStep extends Forms\Components\Wizard\Step
             ]);
     }
 
-    protected function retrieveCiCdTemplates(?string $type): Collection
+    protected function getSelectedTemplateInfo(?string $group, ?string $key): ?TemplateInfo
     {
-        return collect($this->templateRepository->getTemplatesForType($type));
+        return collect($this->templateRepository->getTemplatesForType($group))->get($key);
     }
 }

@@ -61,8 +61,8 @@ class SampleFormData
     public function getCiCdOptions(): array
     {
         return [
-            'template_type' => null,
-            'template_version' => null,
+            'template_group' => null,
+            'template_key' => null,
             'node_version' => '20',
             'enabled_stages' => [
                 'prepare' => true,

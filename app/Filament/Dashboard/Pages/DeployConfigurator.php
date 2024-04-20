@@ -5,6 +5,7 @@ namespace App\Filament\Dashboard\Pages;
 use App\Domains\DeployConfigurator\Data\CiCdOptions;
 use App\Domains\DeployConfigurator\Data\ProjectDetails;
 use App\Domains\DeployConfigurator\DeployConfigBuilder;
+use App\Domains\DeployConfigurator\DeployProjectBuilder;
 use App\Domains\DeployConfigurator\Jobs\ConfigureRepositoryJob;
 use App\Filament\Contacts\HasParserInfo;
 use App\Filament\Dashboard\Pages\DeployConfigurator\InteractsWithParser;
@@ -52,7 +53,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
     public array $data = [];
 
     public bool $emptyRepo = false;
-    public bool $isLaravelRepository = false;
     public bool $jobDispatched = false;
     public Carbon $openedAt;
 
@@ -91,8 +91,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
         if ($this->jobDispatched) {
             Notification::make()
                 ->warning()
-                ->title('Repository setup already started')
-                ->body('Repository setup has been already started. You will be notified when it is done.')
+                ->title('Repository setup already saved')
+                ->body('You will be notified when it is done.')
                 ->send();
 
             return;
@@ -105,25 +105,24 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
         /** @var User $user */
         $user = Filament::auth()->user();
 
-        /* todo - create project */
+        $projectDetails = ProjectDetails::makeFromArray($this->data['projectInfo']);
+        $ciCdOptions = CiCdOptions::makeFromArray($this->data['ci_cd_options']);
 
-        dispatch(
-            new ConfigureRepositoryJob(
-                userId: $user->getAuthIdentifier(),
-                projectDetails: $project = ProjectDetails::makeFromArray($this->data['projectInfo']),
-                ciCdOptions: CiCdOptions::makeFromArray($this->data['ci_cd_options']),
-                deployConfigurations: $deployConfigBuilder->buildDeployPrepareConfig(),
-                stages: $deployConfigBuilder->processStages(),
-                startAt: $this->openedAt,
-            )
-        );
+        $deployProject = DeployProjectBuilder::make($projectDetails)
+            ->user($user)
+            ->openedAt($this->openedAt)
+            ->ciCdOptions($ciCdOptions)
+            ->stages($deployConfigBuilder->processStages())
+            ->create('panel');
+
+        dispatch(new ConfigureRepositoryJob(userId: $user->getAuthIdentifier(), deployProject: $deployProject));
 
         $this->fill(['jobDispatched' => true]);
 
         $user->notify(
             new UserTelegramNotification(
                 TelegramMessage::create(
-                    "Repository '{$project->name}' setup started. You will be notified when it is done."
+                    "Repository '{$projectDetails->name}' configuration saved. You will be notified when it is done."
                 )
             )
         );
@@ -193,7 +192,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
         $this->resetProjectInfo();
 
         $this->reset([
-            //'isLaravelRepository',
             'emptyRepo',
         ]);
 
@@ -208,6 +206,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
             // reset stages
             'data.stages' => $sampleFormData->getSampleStages(),
         ]);
+
+        $this->form->fill($this->data);
     }
 
     protected function resetProjectInfo(): void

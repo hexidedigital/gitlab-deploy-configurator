@@ -119,48 +119,45 @@ class ProjectStep extends Forms\Components\Wizard\Step
     {
         return Forms\Components\Grid::make()->schema([
             Forms\Components\Grid::make(1)->columnSpan(1)->schema([
-                Forms\Components\Fieldset::make('Repository')
-                    ->columns()
-                    ->columnSpan(1)
-                    ->schema([
-                        Forms\Components\Placeholder::make('placeholder.name')
-                            ->content(fn (Forms\Get $get) => $get('projectInfo.name')),
+                Forms\Components\Fieldset::make('Repository')->columns()->columnSpan(1)->visible(fn (Forms\Get $get) => $get('projectInfo.selected_id'))->schema([
+                    Forms\Components\Placeholder::make('placeholder.name')
+                        ->content(fn (Forms\Get $get) => $get('projectInfo.name')),
 
-                        Forms\Components\Placeholder::make('placeholder.project_id')
-                            ->label('Project ID')
-                            ->content(fn (Forms\Get $get) => $get('projectInfo.project_id')),
+                    Forms\Components\Placeholder::make('placeholder.project_id')
+                        ->label('Project ID')
+                        ->content(fn (Forms\Get $get) => $get('projectInfo.project_id')),
 
-                        Forms\Components\Placeholder::make('placeholder.access_level')
-                            ->label('Access level')
-                            ->content(function (Forms\Get $get, DeployConfigurator $livewire) {
-                                $project = $livewire->gitlabService()->ignoreOnGitlabException()->findProject($get('projectInfo.selected_id'));
+                    Forms\Components\Placeholder::make('placeholder.access_level')
+                        ->label('Access level')
+                        ->content(function (Forms\Get $get, DeployConfigurator $livewire) {
+                            $project = $livewire->gitlabService()->ignoreOnGitlabException()->findProject($get('projectInfo.selected_id'));
 
-                                if (is_null($project)) {
-                                    return '-';
-                                }
+                            if (is_null($project)) {
+                                return '-';
+                            }
 
-                                return $project->level()->getLabel();
-                            }),
+                            return $project->level()->getLabel();
+                        }),
 
-                        Forms\Components\Placeholder::make('placeholder.web_url')
-                            ->columnSpanFull()
-                            ->content(fn (Forms\Get $get) => new HtmlString(
-                                sprintf(
-                                    '<a href="%s" class="underline" target="_blank">%s</a>',
-                                    $get('projectInfo.web_url'),
-                                    $get('projectInfo.web_url')
-                                )
-                            )),
+                    Forms\Components\Placeholder::make('placeholder.web_url')
+                        ->columnSpanFull()
+                        ->content(fn (Forms\Get $get) => new HtmlString(
+                            sprintf(
+                                '<a href="%s" class="underline" target="_blank">%s</a>',
+                                $get('projectInfo.web_url'),
+                                $get('projectInfo.web_url')
+                            )
+                        )),
 
-                        Forms\Components\Placeholder::make('placeholder.git_url')
-                            ->columnSpanFull()
-                            ->label('Git url')
-                            ->content(fn (Forms\Get $get) => $get('projectInfo.git_url')),
-                    ]),
+                    Forms\Components\Placeholder::make('placeholder.git_url')
+                        ->columnSpanFull()
+                        ->label('Git url')
+                        ->content(fn (Forms\Get $get) => $get('projectInfo.git_url')),
+                ]),
             ]),
 
-            Forms\Components\Fieldset::make('Code')->columns(1)->columnSpan(1)->schema([
-                Forms\Components\Placeholder::make('placeholder.codeInfo.repository_template_type')
+            Forms\Components\Fieldset::make('Code')->columns(1)->columnSpan(1)->visible(fn (Forms\Get $get) => $get('projectInfo.selected_id'))->schema([
+                Forms\Components\Placeholder::make('placeholder.codeInfo.repository_template_group')
                     ->label('Detected project template')
                     ->content(fn (Forms\Get $get) => RepositoryParser::getRepositoryTemplateName($get('projectInfo.codeInfo.repository_template'))),
 
