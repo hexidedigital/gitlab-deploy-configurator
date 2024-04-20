@@ -9,6 +9,7 @@
         "brunocfalcao/blade-feather-icons": "^4.0",
         "defstudio/telegraph": "^1.43.5",
         "filament/filament": "^3.2.69",
+        "filament/spatie-laravel-settings-plugin": "^3.2",
         "graham-campbell/gitlab": "^7.5",
         "hexide-digital/gitlab-deploy": "^1.4.5",
         "laravel-notification-channels/telegram": "^5.0",

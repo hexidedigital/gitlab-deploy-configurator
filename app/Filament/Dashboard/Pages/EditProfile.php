@@ -3,6 +3,7 @@
 namespace App\Filament\Dashboard\Pages;
 
 use App\Domains\GitLab\GitLabService;
+use App\Settings\GeneralSettings;
 use DefStudio\Telegraph\Models\TelegraphBot;
 use Filament\Forms\Components\Component;
 use Filament\Forms\Components\Hidden;
@@ -152,7 +153,7 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
                     return;
                 }
 
-                $url = TelegraphBot::firstWhere('name', config('app.main_telegram_bot'))?->url();
+                $url = TelegraphBot::firstWhere('name', app(GeneralSettings::class)->mainTelegramBot)?->url();
                 if (!$url) {
                     Notification::make()
                         ->title('Telegram integration')

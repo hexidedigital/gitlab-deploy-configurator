@@ -6,6 +6,7 @@ use App\Domains\DeployConfigurator\Events\DeployConfigurationJobFailedEvent;
 use App\Enums\Role;
 use App\Models\User;
 use App\Notifications\UserTelegramNotification;
+use App\Settings\GeneralSettings;
 use DefStudio\Telegraph\Models\TelegraphBot;
 use Filament\Events\Auth\Registered;
 use Filament\Facades\Filament;
@@ -54,7 +55,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(Telegram::class, static function () {
-            $token = TelegraphBot::firstWhere('name', config('app.main_telegram_bot'))?->token;
+            $token = TelegraphBot::firstWhere('name', app(GeneralSettings::class)->mainTelegramBot)?->token;
 
             return new Telegram(
                 $token,
@@ -74,6 +75,7 @@ class AppServiceProvider extends ServiceProvider
                 $user->notify(
                     new UserTelegramNotification(
                         TelegramMessage::create()
+                            ->disableNotification()
                             ->line("Hi, {$user->name}! We noticed that you have logged in.")
                             ->line('Time: ' . now()->format('Y-m-d H:i:s'))
                     )
@@ -107,7 +109,7 @@ class AppServiceProvider extends ServiceProvider
                 )
             );
 
-            $loggerBotToken = TelegraphBot::firstWhere('name', 'HexideDigitalAppNotifyBot')?->token;
+            $loggerBotToken = TelegraphBot::firstWhere('name', app(GeneralSettings::class)->loggerTelegramBot)?->token;
 
             User::where('role', '>=', Role::Root->value)->each(function (User $user) use ($event, $loggerBotToken) {
                 $user->notify(
