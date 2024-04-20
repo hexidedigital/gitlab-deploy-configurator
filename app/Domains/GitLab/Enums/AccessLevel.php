@@ -1,6 +1,6 @@
 <?php
 
-namespace App\GitLab\Enums;
+namespace App\Domains\GitLab\Enums;
 
 /**
  * See more in https://docs.gitlab.com/ee/api/access_requests.html#valid-access-levels

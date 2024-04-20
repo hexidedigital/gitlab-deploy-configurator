@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Events;
+namespace App\Domains\DeployConfigurator\Events;
 
-use App\GitLab\Data\ProjectData;
+use App\Domains\GitLab\Data\ProjectData;
 use App\Models\User;
 use Illuminate\Foundation\Events\Dispatchable;
 use Throwable;

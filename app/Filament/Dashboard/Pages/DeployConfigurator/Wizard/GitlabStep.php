@@ -24,6 +24,7 @@ class GitlabStep extends Forms\Components\Wizard\Step
             ->icon('feathericon-gitlab')
             ->afterValidation(function (DeployConfigurator $livewire) {
                 try {
+                    // make simple request to check authorization
                     $livewire->getGitLabManager()->users()->me();
 
                     Notification::make()->title('Access granted to GitLab')->success()->send();

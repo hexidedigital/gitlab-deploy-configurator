@@ -2,17 +2,17 @@
 
 namespace App\Filament\Dashboard\Pages;
 
-use App\DeployConfigurator\DeployConfigBuilder;
+use App\Domains\DeployConfigurator\Data\CiCdOptions;
+use App\Domains\DeployConfigurator\Data\ProjectDetails;
+use App\Domains\DeployConfigurator\DeployConfigBuilder;
+use App\Domains\DeployConfigurator\Jobs\ConfigureRepositoryJob;
 use App\Filament\Contacts\HasParserInfo;
 use App\Filament\Dashboard\Pages\DeployConfigurator\InteractsWithParser;
 use App\Filament\Dashboard\Pages\DeployConfigurator\SampleFormData;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithAccessFieldset;
-use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
+use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlabService;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithProjectInfoManage;
 use App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
-use App\GitLab\Deploy\Data\CiCdOptions;
-use App\GitLab\Deploy\Data\ProjectDetails;
-use App\Jobs\ConfigureRepositoryJob;
 use App\Models\User;
 use App\Notifications\UserTelegramNotification;
 use Filament\Actions\Concerns\InteractsWithActions;
@@ -26,6 +26,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\MaxWidth;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use NotificationChannels\Telegram\TelegramMessage;
 
@@ -36,7 +37,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
 {
     use InteractsWithActions;
     use InteractsWithForms;
-    use WithGitlab;
+    use WithGitlabService;
     use WithProjectInfoManage;
     use WithAccessFieldset;
     use InteractsWithParser;
@@ -104,15 +105,13 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
         /** @var User $user */
         $user = Filament::auth()->user();
 
+        /* todo - create project */
+
         dispatch(
             new ConfigureRepositoryJob(
                 userId: $user->getAuthIdentifier(),
                 projectDetails: $project = ProjectDetails::makeFromArray($this->data['projectInfo']),
-                ciCdOptions: new CiCdOptions(
-                    template_version: $this->data['ci_cd_options']['template_version'],
-                    enabled_stages: $this->data['ci_cd_options']['enabled_stages'],
-                    node_version: $this->data['ci_cd_options']['node_version'],
-                ),
+                ciCdOptions: CiCdOptions::makeFromArray($this->data['ci_cd_options']),
                 deployConfigurations: $deployConfigBuilder->buildDeployPrepareConfig(),
                 stages: $deployConfigBuilder->processStages(),
                 startAt: $this->openedAt,
@@ -121,9 +120,13 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
 
         $this->fill(['jobDispatched' => true]);
 
-        $user->notify(new UserTelegramNotification(TelegramMessage::create(
-            "Repository '{$project->name}' setup started. You will be notified when it is done."
-        )));
+        $user->notify(
+            new UserTelegramNotification(
+                TelegramMessage::create(
+                    "Repository '{$project->name}' setup started. You will be notified when it is done."
+                )
+            )
+        );
 
         Notification::make()
             ->success()
@@ -183,5 +186,38 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                     ];
                 }),
         ])->statePath('data');
+    }
+
+    public function resetProjectRelatedData(): void
+    {
+        $this->resetProjectInfo();
+
+        $this->reset([
+            //'isLaravelRepository',
+            'emptyRepo',
+        ]);
+
+        $this->resetParsedState();
+
+        // reset some form data to defaults
+        $sampleFormData = new SampleFormData();
+        $this->fill([
+            'data.init_repository_script' => null,
+            // reset selected ci cd options
+            'data.ci_cd_options' => $sampleFormData->getCiCdOptions(),
+            // reset stages
+            'data.stages' => $sampleFormData->getSampleStages(),
+        ]);
+    }
+
+    protected function resetProjectInfo(): void
+    {
+        $sampleFormData = new SampleFormData();
+
+        $projectInfo = $sampleFormData->getProjectInfoData(data_get($this, 'data.projectInfo.token'));
+
+        Arr::forget($projectInfo, 'selected_id');
+
+        $this->fill(Arr::dot($projectInfo, 'data.projectInfo'));
     }
 }

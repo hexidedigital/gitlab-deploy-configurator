@@ -2,7 +2,7 @@
 
 namespace App\Filament\Dashboard\Pages;
 
-use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
+use App\Domains\GitLab\GitLabService;
 use Filament\Forms\Components\Component;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\TextInput;
@@ -10,13 +10,10 @@ use Filament\Forms\Form;
 use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Gitlab\Exception\RuntimeException;
-use GrahamCampbell\GitLab\GitLabManager;
 use Illuminate\Support\HtmlString;
 
 class Register extends \Filament\Pages\Auth\Register
 {
-    use WithGitlab;
-
     public function form(Form $form): Form
     {
         return $form
@@ -71,9 +68,7 @@ class Register extends \Filament\Pages\Auth\Register
                     return;
                 }
 
-                $manager = app(GitLabManager::class);
-
-                $this->authenticateGitlabManager($manager, $state, config('services.gitlab.url'));
+                $manager = app(GitLabService::class)->authenticateUsing(token: $state)->gitLabManager();
 
                 try {
                     $me = $manager->users()->me();

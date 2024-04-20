@@ -1,8 +1,8 @@
 <?php
 
-namespace App\GitLab\Data;
+namespace App\Domains\GitLab\Data;
 
-use App\GitLab\Enums\AccessLevel;
+use App\Domains\GitLab\Enums\AccessLevel;
 use Illuminate\Support\Arr;
 
 final readonly class ProjectData

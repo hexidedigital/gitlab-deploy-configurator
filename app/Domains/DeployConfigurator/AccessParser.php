@@ -1,6 +1,6 @@
 <?php
 
-namespace App\DeployConfigurator;
+namespace App\Domains\DeployConfigurator;
 
 use Illuminate\Support\Collection;
 

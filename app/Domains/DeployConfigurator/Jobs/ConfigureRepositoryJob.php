@@ -1,13 +1,14 @@
 <?php
 
-namespace App\Jobs;
+namespace App\Domains\DeployConfigurator\Jobs;
 
-use App\DeployConfigurator\DeployConfigBuilder;
-use App\Events\DeployConfigurationJobFailedEvent;
-use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
-use App\GitLab\Data\ProjectData;
-use App\GitLab\Deploy\Data\CiCdOptions;
-use App\GitLab\Deploy\Data\ProjectDetails;
+use App\Domains\DeployConfigurator\CiCdTemplateRepository;
+use App\Domains\DeployConfigurator\Data\CiCdOptions;
+use App\Domains\DeployConfigurator\Data\ProjectDetails;
+use App\Domains\DeployConfigurator\DeployConfigBuilder;
+use App\Domains\DeployConfigurator\Events\DeployConfigurationJobFailedEvent;
+use App\Domains\GitLab\Data\ProjectData;
+use App\Domains\GitLab\GitLabService;
 use App\Models\User;
 use App\Notifications\UserTelegramNotification;
 use Exception;
@@ -46,7 +47,6 @@ class ConfigureRepositoryJob implements ShouldQueue
     use InteractsWithQueue;
     use Queueable;
     use SerializesModels;
-    use WithGitlab;
 
     /** moik.o / laravel 11 playground */
     public const TEST_PROJECT = 689;
@@ -65,6 +65,8 @@ class ConfigureRepositoryJob implements ShouldQueue
     private Filesystem|FilesystemAdapter $remoteFilesystem;
     private LoggerInterface|Logger $logger;
 
+    private GitLabService $gitLabService;
+
     public function __construct(
         public int $userId,
         public ProjectDetails $projectDetails,
@@ -75,7 +77,7 @@ class ConfigureRepositoryJob implements ShouldQueue
     ) {
     }
 
-    public function handle(DeployConfigBuilder $deployConfigBuilder): void
+    public function handle(DeployConfigBuilder $deployConfigBuilder, GitLabService $gitLabService): void
     {
         $this->logger = Log::channel('daily');
 
@@ -88,7 +90,9 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         $this->logger->info('Start configuring repository for project');
 
-        $project = $this->findProject($projectId);
+        $this->gitLabService = $gitLabService->authenticateUsing($this->projectDetails->token, $this->projectDetails->domain);
+
+        $project = $this->gitLabService->findProject($projectId);
         if (is_null($project)) {
             $this->fail(new Exception('Project not found or access denied'));
 
@@ -288,12 +292,15 @@ class ConfigureRepositoryJob implements ShouldQueue
     private function taskCreateCommitWithConfigFiles(string $stageName, DeployConfigBuilder $deployConfigBuilder): void
     {
         // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
+        $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($this->ciCdOptions->template_type, $this->ciCdOptions->template_version);
+
         $actions = collect([
             [
                 // "action" => "create",
                 "file_path" => ".gitlab-ci.yml",
                 "content" => view('gitlab-ci-yml', [
-                    'templateVersion' => $this->ciCdOptions->template_version,
+                    'templateType' => $this->ciCdOptions->template_type,
+                    'templateName' => $templateInfo['templateName'],
                     'nodeVersion' => $this->ciCdOptions->node_version,
                     'buildStageEnabled' => $this->ciCdOptions->isStageEnabled('build'),
                 ])->render(),
@@ -307,7 +314,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             $generatedContent = $action['content'];
 
             // check if file exists
-            $currentContent = $this->getFileContent($this->gitlabProject, $action['file_path']);
+            $currentContent = $this->gitLabService->getFileContent($this->gitlabProject, $action['file_path']);
 
             // if current content is same with generated - skip
             if ($currentContent === $generatedContent) {
@@ -357,17 +364,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function getGitLabManager(): GitLabManager
     {
-        if (isset($this->gitLabManager)) {
-            return $this->gitLabManager;
-        }
-
-        return tap($this->gitLabManager = app(GitLabManager::class), function (GitLabManager $manager) {
-            $this->authenticateGitlabManager(
-                $manager,
-                $this->projectDetails->token,
-                $this->projectDetails->domain,
-            );
-        });
+        return $this->gitLabService->gitLabManager();
     }
 
     private function makeDeployState(): DeployerState
@@ -544,8 +541,12 @@ class ConfigureRepositoryJob implements ShouldQueue
     {
         $variableBag = $this->state->getGitlabVariablesBag();
 
+        $templateRepository = new CiCdTemplateRepository();
+        $templateInfo = $templateRepository->getTemplateInfo($this->ciCdOptions->template_type, $this->ciCdOptions->template_version);
+
         // create variables for template
-        if ($this->ciCdOptions->withDisableStages()) {
+        $withDisableStages = $templateInfo['configure_stages'] ?? false;
+        if ($withDisableStages) {
             $variableBag->add(
                 new Variable(
                     key: 'CI_COMPOSER_STAGE',
@@ -672,7 +673,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function taskPrepareAndCopyDotEnvFileForRemote(): void
     {
-        $envExampleFileContent = $this->getFileContent($this->gitlabProject, '.env.example');
+        $envExampleFileContent = $this->gitLabService->getFileContent($this->gitlabProject, '.env.example');
 
         // /home/user
         $homeDirectory = $this->resolveHomeDirectory();

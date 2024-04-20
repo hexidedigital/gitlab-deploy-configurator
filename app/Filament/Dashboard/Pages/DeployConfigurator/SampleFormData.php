@@ -49,16 +49,20 @@ class SampleFormData
             'domain' => config('services.gitlab.url'),
 
             'selected_id' => null,
+            'is_test' => false,
             'name' => null,
             'project_id' => null,
+            'web_url' => null,
             'git_url' => null,
+            'codeInfo' => [],
         ];
     }
 
     public function getCiCdOptions(): array
     {
         return [
-            'template_version' => '3.0',
+            'template_type' => null,
+            'template_version' => null,
             'node_version' => '20',
             'enabled_stages' => [
                 'prepare' => true,

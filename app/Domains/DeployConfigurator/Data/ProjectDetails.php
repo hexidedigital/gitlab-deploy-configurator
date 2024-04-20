@@ -1,6 +1,6 @@
 <?php
 
-namespace App\GitLab\Deploy\Data;
+namespace App\Domains\DeployConfigurator\Data;
 
 readonly class ProjectDetails
 {
@@ -11,9 +11,7 @@ readonly class ProjectDetails
         public string $name,
         public string $web_url,
         public string $git_url,
-        public string|null $laravel_version = null,
-        public string|null $repository_template = null,
-        public string|null $frontend_builder = null,
+        public array $codeInfo,
     ) {
     }
 
@@ -26,9 +24,13 @@ readonly class ProjectDetails
             name: data_get($projectInfo, 'name'),
             web_url: data_get($projectInfo, 'web_url'),
             git_url: data_get($projectInfo, 'git_url'),
-            laravel_version: data_get($projectInfo, 'laravel_version'),
-            repository_template: data_get($projectInfo, 'repository_template'),
-            frontend_builder: data_get($projectInfo, 'frontend_builder'),
+            codeInfo: [
+                'laravel_version' => data_get($projectInfo, 'codeInfo.laravel_version'),
+                'repository_template' => data_get($projectInfo, 'codeInfo.repository_template'),
+                'frontend_builder' => data_get($projectInfo, 'codeInfo.frontend_builder'),
+                'is_laravel' => data_get($projectInfo, 'codeInfo.is_laravel'),
+                'admin_panel' => data_get($projectInfo, 'codeInfo.admin_panel'),
+            ],
         );
     }
 }

@@ -21,7 +21,12 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
         $this
             ->icon('heroicon-o-check-badge')
             ->afterValidation(function (Forms\Get $get, DeployConfigurator $livewire) {
-                $isValid = $livewire->validateProjectData($get('projectInfo.selected_id'));
+                $project = $livewire->resolveProject($get('projectInfo.selected_id'));
+                if (empty($project)) {
+                    throw new Halt();
+                }
+
+                $isValid = $livewire->validateProject($project);
                 if (!$isValid) {
                     throw new Halt();
                 }
@@ -50,6 +55,18 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                                                 $get('projectInfo.web_url')
                                             )
                                         )),
+                                ]),
+
+                            Forms\Components\Fieldset::make('Repository and CI/CD')
+                                ->columns()
+                                ->schema([
+                                    Forms\Components\Placeholder::make('placeholder.ci_cd_options.template_type')
+                                        ->label('CI/CD template type')
+                                        ->content(fn (Forms\Get $get) => $get('ci_cd_options.template_type')),
+
+                                    Forms\Components\Placeholder::make('placeholder.ci_cd_options.template_version')
+                                        ->label('CI/CD template version')
+                                        ->content(fn (Forms\Get $get) => $get('ci_cd_options.template_version')),
                                 ]),
 
                             Forms\Components\Repeater::make('stages')

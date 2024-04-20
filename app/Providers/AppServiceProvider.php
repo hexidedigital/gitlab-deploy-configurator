@@ -2,8 +2,8 @@
 
 namespace App\Providers;
 
+use App\Domains\DeployConfigurator\Events\DeployConfigurationJobFailedEvent;
 use App\Enums\Role;
-use App\Events\DeployConfigurationJobFailedEvent;
 use App\Models\User;
 use App\Notifications\UserTelegramNotification;
 use DefStudio\Telegraph\Models\TelegraphBot;

@@ -1,8 +1,8 @@
 <?php
 
-namespace App\DeployConfigurator;
+namespace App\Domains\DeployConfigurator;
 
-use App\GitLab\Deploy\Data\ProjectDetails;
+use App\Domains\DeployConfigurator\Data\ProjectDetails;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;

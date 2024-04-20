@@ -2,7 +2,7 @@
 
 namespace App\Filament\Dashboard\Pages;
 
-use App\Filament\Dashboard\Pages\DeployConfigurator\WithGitlab;
+use App\Domains\GitLab\GitLabService;
 use DefStudio\Telegraph\Models\TelegraphBot;
 use Filament\Forms\Components\Component;
 use Filament\Forms\Components\Hidden;
@@ -15,7 +15,6 @@ use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Filament\Support\Colors\Color;
 use Gitlab\Exception\RuntimeException;
-use GrahamCampbell\GitLab\GitLabManager;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
@@ -23,8 +22,6 @@ use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class EditProfile extends \Filament\Pages\Auth\EditProfile
 {
-    use WithGitlab;
-
     public ?string $qr_link = null;
     public bool $canConnectTelegram = false;
 
@@ -92,9 +89,7 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
                     return;
                 }
 
-                $manager = app(GitLabManager::class);
-
-                $this->authenticateGitlabManager($manager, $state, config('services.gitlab.url'));
+                $manager = app(GitLabService::class)->authenticateUsing(token: $state)->gitLabManager();
 
                 try {
                     $me = $manager->users()->me();
