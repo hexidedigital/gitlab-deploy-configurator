@@ -129,6 +129,11 @@ class ConfigureRepositoryJob implements ShouldQueue
         foreach ($stages as $stage) {
             $this->currentStageInfo = StageInfo::makeFromArray($stage);
 
+            $this->deployProject->update([
+                'current_step' => 'processing',
+                'status' => 'processing stage ' . $this->currentStageInfo->name,
+            ]);
+
             $this->logWriter->getLogger()->withContext(['stage' => $this->currentStageInfo->name]);
 
             $this->logWriter->info("Processing stage: {$this->currentStageInfo->name}");
@@ -146,6 +151,8 @@ class ConfigureRepositoryJob implements ShouldQueue
                 $this->sendSuccessNotification();
 
                 $this->deployProject->update([
+                    'current_step' => 'done',
+                    'status' => 'finished',
                     'logs' => $this->logWriter->getLogBag(),
                     'finished_at' => now(),
                 ]);
@@ -174,6 +181,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
                 $this->deployProject->increment('fail_counts');
                 $this->deployProject->update([
+                    'status' => 'exception failed',
                     'logs' => $this->logWriter->getLogBag(),
                     'failed_at' => now(),
                     'exception' => $exception->getMessage(),
@@ -217,6 +225,12 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         report($exception);
 
+        $this->deployProject->increment('fail_counts');
+        $this->deployProject->update([
+            'status' => 'failed',
+            'exception' => $exception->getMessage(),
+        ]);
+
         DeployConfigurationJobFailedEvent::dispatch($this->user, $this->gitlabProject, $exception);
     }
 
@@ -259,41 +273,49 @@ class ConfigureRepositoryJob implements ShouldQueue
     {
         // task 1 - generate ssh keys on localhost
         $this->logWriter->info('Step 1: Generating SSH keys on localhost');
+        $this->deployProject->update(['current_step' => 'step1']);
         $this->taskGenerateSshKeysOnLocalhost();
 
         // task 2 - copy ssh keys on remote host
         // get content pub key and put to auth_keys on server
         $this->logWriter->info('Step 2: Copying SSH keys on remote host');
+        $this->deployProject->update(['current_step' => 'step2']);
         $this->taskCopySshKeysOnRemoteHost();
 
         // task 3 - generate ssh keys on remote host
         // fetch existing keys, or generate new one locally (specify user and login) or on remove (need execute)
         $this->logWriter->info('Step 3: Generating SSH keys on remote host');
+        $this->deployProject->update(['current_step' => 'step3']);
         $this->taskGenerateSshKeysOnRemoteHost();
 
         // task 4 - create project variables on gitlab
         // create and configure gitlab variables
         $this->logWriter->info('Step 4: Creating project variables on GitLab');
+        $this->deployProject->update(['current_step' => 'step4']);
         $this->taskCreateProjectVariables();
 
         // task 5 - add gitlab to known hosts on remote host
         // append content to known_hosts file
         $this->logWriter->info('Step 5: Adding GitLab to known hosts on remote host');
+        $this->deployProject->update(['current_step' => 'step5']);
         $this->taskAddGitlabToKnownHostsOnRemoteHost();
 
         // task 6 - prepare and copy dot env file for remote
         // copy file to remote (create folder)
         $this->logWriter->info('Step 6: Preparing and copying .env file for remote');
+        $this->deployProject->update(['current_step' => 'step6']);
         $this->taskPrepareAndCopyDotEnvFileForRemote();
 
         // task 7 - push branch and trigger pipeline (run first deploy command)
         // create deploy branch with new files in repository
         $this->logWriter->info('Step 7: Creating commit with config files');
+        $this->deployProject->update(['current_step' => 'step7']);
         $this->taskCreateCommitWithConfigFiles();
 
         // task 8 - insert custom aliases on remote host
         // create or append file content
         $this->logWriter->info('Step 8: Inserting custom aliases on remote host');
+        $this->deployProject->update(['current_step' => 'step8']);
         $this->taskInsertCustomAliasesOnRemoteHost();
     }
 
