@@ -64,6 +64,7 @@ class SampleFormData
             'template_group' => null,
             'template_key' => null,
             'node_version' => '20',
+            'build_folder' => 'dist',
             'enabled_stages' => [
                 'prepare' => true,
                 'build' => true,

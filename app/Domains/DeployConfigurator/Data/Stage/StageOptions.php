@@ -23,8 +23,8 @@ readonly class StageOptions
             binComposer: $data['bin-composer'] ?? $data['bin_composer'] ?? null,
             binPhp: $data['bin-php'] ?? $data['bin_php'] ?? null,
             homeFolder: $data['home-folder'] ?? $data['home_folder'] ?? null,
-            ssh: SshOptions::makeFromArray($data['ssh']),
-            bashAliases: BashAliasesOptions::makeFromArray($data['bash_aliases']),
+            ssh: SshOptions::makeFromArray($data['ssh'] ?? []),
+            bashAliases: BashAliasesOptions::makeFromArray($data['bash_aliases'] ?? []),
         );
     }
 }

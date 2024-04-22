@@ -58,6 +58,7 @@ class AccessParser
                 }
 
                 if ($chunkLines->filter()->isNotEmpty()) {
+                    xdebug_break();
                     $this->saveUnresolved([
                         'chunk' => $chunkIndex + 1,
                         'lines' => $chunkLines,

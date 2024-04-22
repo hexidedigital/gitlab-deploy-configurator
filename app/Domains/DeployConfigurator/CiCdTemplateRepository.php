@@ -7,29 +7,37 @@ use App\Domains\DeployConfigurator\Data\TemplateInfo;
 class CiCdTemplateRepository
 {
     /**
-     * @param string|null $repositoryType
+     * @param string|null $templateGroup
      * @return array<string, TemplateInfo>
      */
-    public function getTemplatesForType(?string $repositoryType): array
+    public function getTemplatesForGroup(?string $templateGroup): array
     {
-        return match ($repositoryType) {
+        return match ($templateGroup) {
             'backend' => $this->backendTemplates(),
             'frontend' => $this->frontendTemplates(),
             default => [],
         };
     }
 
-    public function templateTypes(): array
+    public function templateGroups(): array
     {
         return [
-            'backend' => 'Backend (Laravel)',
-            'frontend' => 'Frontend (Vue, React)',
+            'backend' => [
+                'key' => 'backend',
+                'name' => 'Backend (Laravel)',
+                'icon' => '🏴',
+            ],
+            'frontend' => [
+                'key' => 'frontend',
+                'name' => 'Frontend (Vue, React)',
+                'icon' => '🦄',
+            ],
         ];
     }
 
     public function getTemplateInfo(string $group, string $key): ?TemplateInfo
     {
-        return collect($this->getTemplatesForType($group))->get($key);
+        return collect($this->getTemplatesForGroup($group))->get($key);
     }
 
     /**
@@ -82,16 +90,18 @@ class CiCdTemplateRepository
                 name: 'react (latest)',
                 templateName: 'react.latest',
                 group: 'frontend',
-                isDisabled: false,
+                isDisabled: true,
                 canSelectNodeVersion: false,
+                hasBuildFolder: false,
             ),
             'vue_2_0' => new TemplateInfo(
                 key: 'vue_2_0',
                 name: 'vue (2.0)',
                 templateName: 'vue.2.0',
                 group: 'frontend',
-                isDisabled: false,
+                isDisabled: true,
                 canSelectNodeVersion: false,
+                hasBuildFolder: false,
             ),
             'vue_latest' => new TemplateInfo(
                 key: 'vue_latest',
@@ -100,6 +110,7 @@ class CiCdTemplateRepository
                 group: 'frontend',
                 isDisabled: false,
                 canSelectNodeVersion: true,
+                hasBuildFolder: true,
             ),
         ];
     }

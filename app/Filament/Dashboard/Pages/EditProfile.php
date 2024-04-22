@@ -17,6 +17,7 @@ use Filament\Notifications\Notification;
 use Filament\Support\Colors\Color;
 use Gitlab\Exception\RuntimeException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
@@ -95,11 +96,6 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
                 try {
                     $me = $manager->users()->me();
 
-                    Notification::make()
-                        ->title("Welcome to GitLab, {$me['username']}!")
-                        ->success()
-                        ->send();
-
                     if ($get('gitlab_id') !== $me['id']) {
                         Notification::make()
                             ->title('Detected token manipulation')
@@ -107,10 +103,22 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
                             ->danger()
                             ->send();
 
+                        // report
+                        Log::error('Detected token manipulation', [
+                            'auth_id' => Auth::id(),
+                            'old_id' => $get('gitlab_id'),
+                            'new_id' => $me['id'],
+                        ]);
+
                         $set('gitlab_token', '');
 
                         return;
                     }
+
+                    Notification::make()
+                        ->title("Welcome to GitLab, {$me['username']}!")
+                        ->success()
+                        ->send();
 
                     $set('gitlab_id', $me['id']);
                     $set('avatar_url', $me['avatar_url']);
@@ -142,7 +150,7 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
 
                     Notification::make()
                         ->title('Telegram integration is disabled')
-                        ->body('You no longer receive Deployer events in your Telegram account')
+                        ->body('You no longer interact with the Deployer bot from your Telegram account')
                         ->info()
                         ->send();
 
@@ -153,11 +161,15 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
                     return;
                 }
 
+                if (Auth::user()->refresh()->is_telegram_enabled) {
+                    return;
+                }
+
                 $url = TelegraphBot::firstWhere('name', app(GeneralSettings::class)->mainTelegramBot)?->url();
                 if (!$url) {
                     Notification::make()
                         ->title('Telegram integration')
-                        ->body('The Telegram bot is not available')
+                        ->body('The Telegram bot is not available. Please contact the administrator.')
                         ->danger()
                         ->send();
 

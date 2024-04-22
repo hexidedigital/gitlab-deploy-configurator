@@ -34,9 +34,10 @@ class CiCdStep extends Forms\Components\Wizard\Step
                     ->label('Template types')
                     ->columnSpan(1)
                     ->live()
-                    ->options($this->templateRepository->templateTypes())
+                    ->options(collect($this->templateRepository->templateGroups())
+                        ->map(fn (array $group) => $group['name']))
                     ->disableOptionWhen(function (string $value, Forms\Get $get) {
-                        if (CodeInfoDetails::makeFromArray($get('data.projectInfo.codeInfo') ?: [])->isLaravel) {
+                        if (CodeInfoDetails::makeFromArray($get('projectInfo.codeInfo') ?: [])->isLaravel) {
                             return $value !== 'backend';
                         }
 
@@ -55,7 +56,7 @@ class CiCdStep extends Forms\Components\Wizard\Step
                     ->columnSpan(1)
                     ->visible(fn (Forms\Get $get) => $get('ci_cd_options.template_group'))
                     ->live()
-                    ->options(fn (Forms\Get $get) => collect($this->templateRepository->getTemplatesForType($get('ci_cd_options.template_group')))
+                    ->options(fn (Forms\Get $get) => collect($this->templateRepository->getTemplatesForGroup($get('ci_cd_options.template_group')))
                         ->map(fn (TemplateInfo $template) => $template->name)
                         ->all())
                     ->disableOptionWhen(fn (string $value, Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $value)?->isDisabled)
@@ -64,6 +65,14 @@ class CiCdStep extends Forms\Components\Wizard\Step
                 $this->getCiCdStagesToggleFieldSet(),
 
                 $this->getNodeVersionSelect(),
+
+                Forms\Components\TextInput::make('ci_cd_options.build_folder')
+                    ->label('Build folder')
+                    ->helperText('Which folder will be copies to server with rsync')
+                    ->columnSpan(1)
+                    ->datalist(['dist', 'build'])
+                    ->visible(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->hasBuildFolder)
+                    ->required(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->hasBuildFolder),
 
                 $this->getStagesRepeater(),
             ]);
@@ -103,8 +112,10 @@ class CiCdStep extends Forms\Components\Wizard\Step
         return Forms\Components\Select::make('ci_cd_options.node_version')
             ->label('Node.js version')
             ->visible(function (Forms\Get $get) {
-                return ($get('ci_cd_options.enabled_stages.build') || $get('ci_cd_options.template_group') === 'frontend')
-                    && $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->canSelectNodeVersion;
+                return $this->canSelectNodeVersion(
+                    $get,
+                    $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))
+                );
             })
             ->columnSpan(1)
             ->options([
@@ -112,7 +123,6 @@ class CiCdStep extends Forms\Components\Wizard\Step
                 '18' => '18',
                 '16' => '16',
                 '14' => '14',
-                '12' => '12',
             ])
             ->required(fn (Forms\Get $get) => $get('ci_cd_options.enabled_stages.build'));
     }
@@ -181,8 +191,14 @@ class CiCdStep extends Forms\Components\Wizard\Step
             ]);
     }
 
+    protected function canSelectNodeVersion(Forms\Get $get, ?TemplateInfo $templateInfo): bool
+    {
+        return ($get('ci_cd_options.enabled_stages.build') || $get('ci_cd_options.template_group') === 'frontend')
+            && $templateInfo?->canSelectNodeVersion;
+    }
+
     protected function getSelectedTemplateInfo(?string $group, ?string $key): ?TemplateInfo
     {
-        return collect($this->templateRepository->getTemplatesForType($group))->get($key);
+        return collect($this->templateRepository->getTemplatesForGroup($group))->get($key);
     }
 }

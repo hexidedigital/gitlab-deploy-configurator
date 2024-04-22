@@ -12,6 +12,7 @@ readonly class TemplateInfo
         public bool $isDisabled = false,
         public bool $allowToggleStages = false,
         public bool $canSelectNodeVersion = false,
+        public bool $hasBuildFolder = false,
     ) {
     }
 }

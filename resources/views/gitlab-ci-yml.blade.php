@@ -12,6 +12,6 @@ include:
 variables:
   NODE_VERSION: "{{ $nodeVersion }}"
 @if($templateType == 'frontend')
-  BUILD_FOLDER: "dist"
+  BUILD_FOLDER: "{{ $buildFolder }}"
 @endif
 @endif

@@ -90,7 +90,7 @@ trait WithProjectInfoManage
 
     protected function isFrontendProjectsAllowed(): bool
     {
-        return false;
+        return true;
     }
 
     public function selectProject(string|int|null $projectId): void
@@ -105,14 +105,8 @@ trait WithProjectInfoManage
         $this->fill(Arr::dot($projectInfo, 'data.projectInfo.'));
 
         $this->emptyRepo = $project->hasEmptyRepository();
-        $this->repositoryParser = new RepositoryParser($this->gitlabService());
 
-        $codeInfo = collect()
-            ->merge($this->parseTemplateForLaravel($project))
-            ->merge($this->determineProjectFrontendBuilder($project))
-            ->all();
-
-        $codeInfo = CodeInfoDetails::makeFromArray($codeInfo);
+        $codeInfo = $this->parseProjectInfo($project);
 
         $this->fill([
             'data.projectInfo.codeInfo' => $codeInfo->toArray(),
@@ -122,17 +116,7 @@ trait WithProjectInfoManage
             ->bail(false)
             ->validate();
 
-        if ($codeInfo->isLaravel) {
-            $this->fill(Arr::dot([
-                'template_group' => 'backend',
-                'template_key' => 'laravel_3_0',
-            ], 'data.ci_cd_options.'));
-        } else {
-            $this->fill(Arr::dot([
-                'template_group' => 'frontend',
-                'template_key' => null,
-            ], 'data.ci_cd_options.'));
-        }
+        $this->fillCiCdOptions($project, $codeInfo);
 
         $this->handleValidationErrors($validator);
 
@@ -156,7 +140,7 @@ trait WithProjectInfoManage
 
     protected function parseTemplateForLaravel(ProjectData $project): array
     {
-        if ($project->hasEmptyRepository()) {
+        if ($project->hasEmptyRepository() || str($project->name)->contains('Front')) {
             return [
                 'is_laravel' => false,
             ];
@@ -165,7 +149,7 @@ trait WithProjectInfoManage
         try {
             return $this->repositoryParser->parseTemplateForLaravel($project);
         } catch (Gitlab\Exception\RuntimeException $e) {
-            if ($e->getCode() == 404 && !str($project->name)->contains('Front')) {
+            if ($e->getCode() == 404) {
                 Notification::make()->title('Project does not have composer.json')->warning()->send();
             } else {
                 Notification::make()->title('Failed to detect project template')->danger()->send();
@@ -195,5 +179,36 @@ trait WithProjectInfoManage
         }
 
         return [];
+    }
+
+    protected function parseProjectInfo(ProjectData $project): CodeInfoDetails
+    {
+        $this->repositoryParser = new RepositoryParser($this->gitlabService());
+
+        $codeInfo = collect()
+            ->merge($this->parseTemplateForLaravel($project))
+            ->merge($this->determineProjectFrontendBuilder($project))
+            ->all();
+
+        return CodeInfoDetails::makeFromArray($codeInfo);
+    }
+
+    protected function fillCiCdOptions(ProjectData $project, CodeInfoDetails $codeInfo): void
+    {
+        if ($project->hasEmptyRepository()) {
+            return;
+        }
+
+        if ($codeInfo->isLaravel) {
+            $this->fill(Arr::dot([
+                'template_group' => 'backend',
+                'template_key' => 'laravel_3_0',
+            ], 'data.ci_cd_options.'));
+        } else {
+            $this->fill(Arr::dot([
+                'template_group' => 'frontend',
+                'template_key' => null,
+            ], 'data.ci_cd_options.'));
+        }
     }
 }

@@ -328,6 +328,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             'templateType' => $this->ciCdOptions->template_group,
             'templateName' => $templateInfo->templateName,
             'nodeVersion' => $this->ciCdOptions->node_version,
+            'buildFolder' => $this->ciCdOptions->build_folder,
             'buildStageEnabled' => $this->ciCdOptions->isStageEnabled('build'),
         ])->render();
 
@@ -577,14 +578,14 @@ class ConfigureRepositoryJob implements ShouldQueue
                 new Variable(
                     key: 'CI_COMPOSER_STAGE',
                     scope: '*',
-                    value: $this->ciCdOptions->isStagesDisabled('prepare') ? 0 : 1,
+                    value: $this->ciCdOptions->isStageDisabled('prepare') ? 0 : 1,
                 )
             );
             $variableBag->add(
                 new Variable(
                     key: 'CI_BUILD_STAGE',
                     scope: '*',
-                    value: $this->ciCdOptions->isStagesDisabled('build') ? 0 : 1,
+                    value: $this->ciCdOptions->isStageDisabled('build') ? 0 : 1,
                 )
             );
         }

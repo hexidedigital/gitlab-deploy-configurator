@@ -8,23 +8,25 @@ readonly class CiCdOptions implements Arrayable
 {
     public function __construct(
         public string $template_group,
-        public string $template_key,
+        public ?string $template_key,
         public array $enabled_stages,
-        public string $node_version,
+        public ?string $node_version = null,
+        public ?string $build_folder = null,
     ) {
     }
 
     public static function makeFromArray(array $array): CiCdOptions
     {
         return new self(
-            template_group: $array['template_group'],
-            template_key: $array['template_key'],
-            enabled_stages: $array['enabled_stages'],
-            node_version: $array['node_version'],
+            template_group: data_get($array, 'template_group'),
+            template_key: data_get($array, 'template_key'),
+            enabled_stages: data_get($array, 'enabled_stages'),
+            node_version: data_get($array, 'node_version'),
+            build_folder: data_get($array, 'build_folder'),
         );
     }
 
-    public function isStagesDisabled(string $stageName): bool
+    public function isStageDisabled(string $stageName): bool
     {
         return !$this->isStageEnabled($stageName);
     }
@@ -45,6 +47,7 @@ readonly class CiCdOptions implements Arrayable
             'template_key' => $this->template_key,
             'enabled_stages' => $this->enabled_stages,
             'node_version' => $this->node_version,
+            'build_folder' => $this->build_folder,
         ];
     }
 }
