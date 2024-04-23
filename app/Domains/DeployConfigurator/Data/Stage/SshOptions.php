@@ -2,7 +2,7 @@
 
 namespace App\Domains\DeployConfigurator\Data\Stage;
 
-class SshOptions
+readonly class SshOptions
 {
     public function __construct(
         public bool $useCustomSshKey = false,
