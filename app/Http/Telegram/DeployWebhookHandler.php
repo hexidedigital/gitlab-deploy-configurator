@@ -1396,15 +1396,11 @@ class DeployWebhookHandler extends WebhookHandler
         $projectDetails = ProjectDetails::makeFromArray($data['projectInfo']);
         $ciCdOptions = CiCdOptions::makeFromArray($data['ci_cd_options']);
 
-        $deployConfigBuilder = resolve(DeployConfigBuilder::class);
-        $deployConfigBuilder->setStagesList($data['stages']);
-        $deployConfigBuilder->setProjectDetails($projectDetails);
-
         $deployProject = DeployProjectBuilder::make($projectDetails)
             ->user($this->user)
             ->openedAt($state['openedAt'])
             ->ciCdOptions($ciCdOptions)
-            ->stages($deployConfigBuilder->processStages())
+            ->stages($data['stages'])
             ->create('telegram-bot');
 
         dispatch(new ConfigureRepositoryJob(userId: $this->user->getAuthIdentifier(), deployProject: $deployProject));
