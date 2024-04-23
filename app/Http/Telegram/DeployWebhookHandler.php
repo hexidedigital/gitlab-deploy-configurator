@@ -417,7 +417,7 @@ class DeployWebhookHandler extends WebhookHandler
                     $keyboard->button($label);
                 }
 
-                return $keyboard->oneTime()->chunk(2)->inputPlaceholder('Enter branch name...');
+                return $keyboard->resize()->oneTime()->chunk(2)->inputPlaceholder('Enter branch name...');
             })
             ->send();
 
@@ -464,7 +464,7 @@ class DeployWebhookHandler extends WebhookHandler
         if ($isBranchExists) {
             $this->chat->message("This branch exists. On force update, variables can be changed.")->send();
             $this->chat->message("Force deploy to this branch?")->replyKeyboard(function (ReplyKeyboard $keyboard) {
-                return $keyboard->button('Yes')->button('No')->oneTime()->chunk(2);
+                return $keyboard->button('Yes')->button('No')->resize()->oneTime()->chunk(2);
             })->send();
 
             return;
@@ -1085,7 +1085,7 @@ class DeployWebhookHandler extends WebhookHandler
         }
 
         $this->chat->markdown($message)->replyKeyboard(function (ReplyKeyboard $keyboard) {
-            return $keyboard->button('Yes')->button('No')->chunk(2)->oneTime()->inputPlaceholder('Parsed access info is correct?');
+            return $keyboard->button('Yes')->button('No')->chunk(2)->resize()->oneTime()->inputPlaceholder('Parsed access info is correct?');
         })->send();
 
         $notResolved = $parser->getNotResolved($stageName);
@@ -1320,7 +1320,7 @@ class DeployWebhookHandler extends WebhookHandler
                 $this->chat
                     ->message("{$message}. \nEnter new value or press 'do not change' button to skip editing.\n\nPlease, prepend backslashes on start '\\' to avoid command trigger.")
                     ->replyKeyboard(function (ReplyKeyboard $keyboard) {
-                        return $keyboard->button('Do not change')->oneTime();
+                        return $keyboard->button('Do not change')->resize()->oneTime();
                     })->send();
                 $this->chat->deleteMessage($this->messageId)->send();
             },
