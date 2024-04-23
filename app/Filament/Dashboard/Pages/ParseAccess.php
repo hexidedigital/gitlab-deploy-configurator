@@ -8,6 +8,7 @@ use App\Filament\Dashboard\Pages\DeployConfigurator\ParseAccessSchema;
 use App\Filament\Dashboard\Pages\DeployConfigurator\SampleFormData;
 use App\Filament\Dashboard\Pages\DeployConfigurator\WithAccessFieldset;
 use App\Models\User;
+use App\Settings\GeneralSettings;
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -37,6 +38,7 @@ class ParseAccess extends Page implements Forms\Contracts\HasForms, HasParserInf
         /** @var User $user */
         $user = Filament::auth()->user();
 
+        $domain = str(app(GeneralSettings::class)->gitlabDomain)->replace(['https://', 'http://'], '');
         $sampleFormData = new SampleFormData();
         $this->form->fill([
             'projectInfo' => [
@@ -44,8 +46,8 @@ class ParseAccess extends Page implements Forms\Contracts\HasForms, HasParserInf
                 'selected_id' => '000',
                 'name' => 'Sample project',
                 'project_id' => '000',
-                'git_url' => 'git@gitlab.hexide-digital.com:namespace/sample-project.git',
-                'web_url' => 'https://gitlab.hexide-digital.com/namespace/sample-project',
+                'git_url' => "git@{$domain}:namespace/sample-project.git",
+                'web_url' => "https://{$domain}/namespace/sample-project",
             ],
             'stages' => $sampleFormData->getSampleStages(includeStage: true),
         ]);

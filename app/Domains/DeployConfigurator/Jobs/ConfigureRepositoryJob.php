@@ -157,20 +157,6 @@ class ConfigureRepositoryJob implements ShouldQueue
                     'finished_at' => now(),
                 ]);
 
-                if ($this->user->canReceiveTelegramMessage()) {
-                    $gitlabPipelineUrl = "https://gitlab.hexide-digital.com/{$this->gitlabProject->path_with_namespace}/-/pipelines";
-                    TelegraphChat::query()
-                        ->where('telegraph_bot_id', TelegraphBot::where('name', app(GeneralSettings::class)->mainTelegramBot))
-                        ->where('chat_id', $this->user->telegram_id)
-                        ->first()
-                        ->message(
-                            "We have finished configuring '{$this->gitlabProject->name}' repository.\n" .
-                            'Time elapsed: ' . now()->shortAbsoluteDiffForHumans(Carbon::parse($this->deployProject->deploy_payload['openedAt']))
-                        )
-                        ->keyboard(Keyboard::make()->button('GitLab pipeline')->url($gitlabPipelineUrl))
-                        ->send();
-                }
-
                 if ($this->isTestingProject() && empty($exception)) {
                     $this->release(60 * 2);
                 }
@@ -236,7 +222,9 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function sendSuccessNotification(): void
     {
-        $gitlabPipelineUrl = "https://gitlab.hexide-digital.com/{$this->gitlabProject->path_with_namespace}/-/pipelines";
+        $settings = app(GeneralSettings::class);
+        $domain = str(app(GeneralSettings::class)->gitlabDomain)->replace(['https://', 'http://'], '');
+        $gitlabPipelineUrl = "https://{$domain}/{$this->gitlabProject->path_with_namespace}/-/pipelines";
 
         $this->user->notify(
             new UserTelegramNotification(
@@ -248,6 +236,19 @@ class ConfigureRepositoryJob implements ShouldQueue
                     ->button("Open {$this->state->getStage()->server->domain}", $this->state->getStage()->server->domain)
             )
         );
+
+        if ($this->user->canReceiveTelegramMessage()) {
+            TelegraphChat::query()
+                ->where('telegraph_bot_id', TelegraphBot::where('name', $settings->mainTelegramBot)->value('id'))
+                ->where('chat_id', $this->user->telegram_id)
+                ->first()
+                ->message(
+                    "We have finished configuring '{$this->gitlabProject->name}' repository.\n" .
+                    'Time elapsed: ' . now()->shortAbsoluteDiffForHumans(Carbon::parse($this->deployProject->deploy_payload['openedAt']))
+                )
+                ->keyboard(Keyboard::make()->button('GitLab pipeline')->url($gitlabPipelineUrl))
+                ->send();
+        }
 
         $this->logWriter->info("Repository '{$this->gitlabProject->name}' configured successfully");
 
