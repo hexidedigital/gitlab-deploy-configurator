@@ -2,7 +2,7 @@
 
 namespace App\Http\Telegram\Command;
 
-use App\Exceptions\Halt;
+use App\Exceptions\Telegram\Halt;
 use App\Models\User;
 use App\Settings\GeneralSettings;
 

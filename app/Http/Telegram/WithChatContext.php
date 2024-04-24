@@ -3,16 +3,23 @@
 namespace App\Http\Telegram;
 
 use App\Domains\GitLab\GitLabService;
-use App\Exceptions\Halt;
+use App\Exceptions\Telegram\Halt;
+use App\Exceptions\Telegram\MissingUserException;
 use App\Filament\Dashboard\Pages\DeployConfigurator\SampleFormData;
 use App\Models\ChatContext;
 use App\Models\User;
+use DefStudio\Telegraph\Models\TelegraphChat;
 
 trait WithChatContext
 {
     protected ChatContext $chatContext;
     protected User $user;
     protected GitLabService $gitLabService;
+
+    public function getChat(): TelegraphChat
+    {
+        return $this->chat;
+    }
 
     protected function makePreparationsForWork(): void
     {
@@ -25,10 +32,8 @@ trait WithChatContext
     {
         $this->user = User::query()
             ->where('is_telegram_enabled', true)
-            ->where('telegram_id', $this->chat->chat_id)->firstOr(function () {
-                $this->welcomeMessage();
-
-                throw new Halt();
+            ->where('telegram_id', $this->getChat()->chat_id)->firstOr(function () {
+                throw new MissingUserException();
             });
     }
 
@@ -48,7 +53,7 @@ trait WithChatContext
         }
 
         $this->chatContext = ChatContext::firstOrCreate([
-            'chat_id' => $this->chat->id,
+            'chat_id' => $this->getChat()->id,
             'user_id' => $this->user->id,
         ], [
             'current_command' => null,

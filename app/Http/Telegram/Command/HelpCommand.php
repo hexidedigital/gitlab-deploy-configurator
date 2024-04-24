@@ -8,11 +8,11 @@ trait HelpCommand
     {
         $this->makePreparationsForWork();
 
-        $message = <<<TEXT
-        I can help you to configure project repository and server for deployment.
+        $message = <<<'TEXT'
+            I can help you to configure project repository and server for deployment.
 
-        To start the configuration process, send me the command /startconfiguration
-        TEXT;
+            To start the configuration process, send me the command /startconfiguration
+            TEXT;
 
         $this->reply($message);
     }

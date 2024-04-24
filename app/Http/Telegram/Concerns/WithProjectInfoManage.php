@@ -7,7 +7,7 @@ use App\Domains\DeployConfigurator\DeployHelper;
 use App\Domains\GitLab\Data\ProjectData;
 use App\Domains\GitLab\ProjectValidator;
 use App\Domains\GitLab\RepositoryParser;
-use App\Exceptions\Halt;
+use App\Exceptions\Telegram\Halt;
 use Closure;
 use DefStudio\Telegraph\Keyboard\Keyboard;
 use Gitlab;

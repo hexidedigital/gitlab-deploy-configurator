@@ -11,7 +11,8 @@ use App\Domains\DeployConfigurator\DeployConfigBuilder;
 use App\Domains\DeployConfigurator\DeployProjectBuilder;
 use App\Domains\DeployConfigurator\Jobs\ConfigureRepositoryJob;
 use App\Domains\GitLab\Data\ProjectData;
-use App\Exceptions\Halt;
+use App\Exceptions\Telegram\Halt;
+use App\Exceptions\Telegram\MissingUserException;
 use App\Filament\Dashboard\Pages\DeployConfigurator\SampleFormData;
 use App\Models\CallbackButton;
 use Closure;
@@ -104,16 +105,22 @@ class DeployWebhookHandler extends WebhookHandler
             return;
         }
 
+        if ($throwable instanceof MissingUserException) {
+            $this->welcomeMessage();
+
+            return;
+        }
+
         if ($throwable instanceof NotFoundHttpException) {
             throw $throwable;
         }
 
         report($throwable);
 
-        $this->reply('Sorry man, I failed :(');
+        $this->chat->message('Sorry man, I failed :(')->send();
 
         if ($this->user->isRoot()) {
-            $this->reply($throwable->getMessage());
+            $this->chat->message($throwable->getMessage())->send();
         }
     }
 
@@ -141,7 +148,7 @@ class DeployWebhookHandler extends WebhookHandler
         $this->makePreparationsForWork();
 
         $cmd = $this->chatContext->current_command ?: '_null_';
-        $this->chat->markdownV2("Status: *{$cmd}*")->send();
+        $this->chat->markdown("Status: *{$cmd}*")->send();
     }
 
     // ------------------------------------
@@ -379,11 +386,11 @@ class DeployWebhookHandler extends WebhookHandler
 
         $this->chat->markdown(
             <<<MD
-            Project details:
-            Name: *{$project->name}*
-            Id: *{$project->id}*
-            Access level: *{$project->level()->getLabel()}*
-            MD
+                Project details:
+                Name: *{$project->name}*
+                Id: *{$project->id}*
+                Access level: *{$project->level()->getLabel()}*
+                MD
         )->send();
     }
 
@@ -614,9 +621,9 @@ class DeployWebhookHandler extends WebhookHandler
 
         if ($editMessageId) {
             return $this->chat->edit($editMessageId)->message($message)->keyboard($keyboard);
-        } else {
-            return $this->chat->message($message)->keyboard($keyboard);
         }
+
+        return $this->chat->message($message)->keyboard($keyboard);
     }
 
     public function configureCiCdOptionsCallback(): void
@@ -634,8 +641,8 @@ class DeployWebhookHandler extends WebhookHandler
         $backButton = $this->makeCallbackButton("<< Back to menu", 'configureCiCdOptionsCallback', ['action' => 'back_to_main_menu_ci_cd']);
 
         (match ($callbackButton->payload->get('action')) {
-            /// ----------------------
-            'confirm_ci_cd' => function () use ($callbackButton) {
+            // / ----------------------
+            'confirm_ci_cd' => function () {
                 $this->reply('CI/CD options saved');
 
                 $this->chat->deleteMessage($this->messageId)->send();
@@ -653,7 +660,7 @@ class DeployWebhookHandler extends WebhookHandler
 
                 $this->switchToNextCommandFromCommand('selecting_ci_cd_options');
             },
-            /// ----------------------
+            // / ----------------------
             'show_main_menu_ci_cd' => function () {
                 $this->deleteKeyboard();
 
@@ -664,8 +671,8 @@ class DeployWebhookHandler extends WebhookHandler
             'back_to_main_menu_ci_cd' => function () {
                 $this->renderMainCiCdMenu($this->messageId)->send();
             },
-            /// ----------------------
-            'select_template_group' => function () use ($callbackButton, $backButton) {
+            // / ----------------------
+            'select_template_group' => function () use ($backButton) {
                 $this->chat->edit($this->messageId)->markdown('Select template for your project: ')->keyboard(function (Keyboard $keyboard) use ($backButton) {
                     $buttons = collect((new CiCdTemplateRepository())->templateGroups())
                         ->map(function (array $group) {
@@ -693,7 +700,7 @@ class DeployWebhookHandler extends WebhookHandler
                     return;
                 }
 
-                $this->chat->edit($this->messageId)->markdown('Select template version: ')->keyboard(function (Keyboard $keyboard) use ($selectGroup, $callbackButton) {
+                $this->chat->edit($this->messageId)->markdown('Select template version: ')->keyboard(function (Keyboard $keyboard) use ($selectGroup) {
                     $backButton = $this->makeCallbackButton("<< Back to templates", 'configureCiCdOptionsCallback', ['action' => 'select_template_group']);
 
                     $buttons = collect((new CiCdTemplateRepository())->getTemplatesForGroup($selectGroup))
@@ -718,7 +725,7 @@ class DeployWebhookHandler extends WebhookHandler
 
                 $this->refreshCiCdMessage();
             },
-            'save_selected_template' => function () use ($callbackButton, $backButton) {
+            'save_selected_template' => function () use ($callbackButton) {
                 $newOptions = [
                     'template_group' => $group = $callbackButton->payload->get('group'),
                     'template_key' => $template = $callbackButton->payload->get('template'),
@@ -742,7 +749,7 @@ class DeployWebhookHandler extends WebhookHandler
 
                 $this->refreshCiCdMessage();
             },
-            /// ----------------------
+            // / ----------------------
             'change_stages', 'save_stage_status' => function () use ($callbackButton, $backButton) {
                 $enabledStages = data_get($this->chatContext->context_data, 'ci_cd_options.enabled_stages');
 
@@ -789,8 +796,8 @@ class DeployWebhookHandler extends WebhookHandler
 
                 $this->refreshCiCdMessage();
             },
-            /// ----------------------
-            'change_node' => function () use ($callbackButton, $backButton) {
+            // / ----------------------
+            'change_node' => function () use ($backButton) {
                 $this->chat->edit($this->callbackQuery->message()->id())->message('Change node version to:')->keyboard(function (Keyboard $keyboard) use ($backButton) {
                     $buttons = collect(['20', '18', '16', '14'])
                         ->map(fn ($v) => $this->makeCallbackButton($v, 'configureCiCdOptionsCallback', [
@@ -981,51 +988,52 @@ class DeployWebhookHandler extends WebhookHandler
                     $composerVOutput = 'Composer not found';
                 }
             }
-                $info = collect([
-                    "home folder: `{$homeFolder}`",
-                    "--------",
-                    "bin paths:",
-                    ...$paths->map(fn ($path, $type) => "{$type}: `{$path['bin']}`"),
-                    "--------",
-                    "all php bins: `{$phpInfo['all']}`",
-                    "--------",
-                    "*php: ({$phpV})*",
-                    "```\n$phpVOutput```",
-                    "--------",
-                    "*composer: ({$composerV})*",
-                    "```\n$composerVOutput```",
-                    "--------",
-                ])->implode("\n");
 
-                $parseState['server_connection_result'] = $info;
-                $this->chat->markdown("Server info fetched:\n\n{$info}")->send();
+            $info = collect([
+                "home folder: `{$homeFolder}`",
+                "--------",
+                "*bin paths*",
+                ...$paths->map(fn ($path, $type) => "{$type}: `{$path['bin']}`"),
+                "--------",
+                "all php bins: `{$phpInfo['all']}`",
+                "--------",
+                "*php: ({$phpV})*",
+                "```\n{$phpVOutput}```",
+                "--------",
+                "*composer: ({$composerV})*",
+                "```\n{$composerVOutput}```",
+                "--------",
+            ])->implode("\n");
 
-                $testFolder = data_get($this->chatContext->context_data, 'projectInfo.is_test') ? '/test' : '';
-                // set server details options
-                $domain = str($server['domain'])->replace(['https://', 'http://'], '')->value();
-                $baseDir = in_array($stage['name'], ['dev', 'stage'])
-                    ? "{$homeFolder}/web/{$domain}/public_html"
-                    : "{$homeFolder}/{$domain}/www";
+            $parseState['server_connection_result'] = $info;
+            $this->chat->markdown("Server info fetched:\n\n{$info}")->send();
 
-                $newOptions = [
-                    'base-dir-pattern' => $baseDir . $testFolder,
-                    'home-folder' => $homeFolder . $testFolder,
-                    'bin-php' => $phpInfo['bin'],
-                    'bin-composer' => "{$phpInfo['bin']} {$paths->get('composer')['bin']}",
-                ];
-                $stage['options'] = array_merge($stage['options'], $newOptions);
+            $testFolder = data_get($this->chatContext->context_data, 'projectInfo.is_test') ? '/test' : '';
+            // set server details options
+            $domain = str($server['domain'])->replace(['https://', 'http://'], '')->value();
+            $baseDir = in_array($stage['name'], ['dev', 'stage'])
+                ? "{$homeFolder}/web/{$domain}/public_html"
+                : "{$homeFolder}/{$domain}/www";
 
-                $message = "Options for deployment:\n";
-                foreach ($newOptions as $name => $value) {
-                    $title = str($name)->kebab()->replace(['-', '_'], ' ')->ucfirst()->value();
-                    $message .= "\n- *{$title}*: `{$value}`";
-                }
-                    $this->chat->markdown($message)->send();
+            $newOptions = [
+                'base-dir-pattern' => $baseDir . $testFolder,
+                'home-folder' => $homeFolder . $testFolder,
+                'bin-php' => $phpInfo['bin'],
+                'bin-composer' => "{$phpInfo['bin']} {$paths->get('composer')['bin']}",
+            ];
+            $stage['options'] = array_merge($stage['options'], $newOptions);
 
-                    $this->chatContext->pushToState(['parse_state' => $parseState]);
-                    $this->chatContext->pushToData(['stages' => [$stage]]);
+            $message = "Options for deployment:\n";
+            foreach ($newOptions as $name => $value) {
+                $title = str($name)->kebab()->replace(['-', '_'], ' ')->ucfirst()->value();
+                $message .= "\n- *{$title}*: `{$value}`";
+            }
+            $this->chat->markdown($message)->send();
 
-                    $this->switchToNextCommandFromCommand('access_parsing');
+            $this->chatContext->pushToState(['parse_state' => $parseState]);
+            $this->chatContext->pushToData(['stages' => [$stage]]);
+
+            $this->switchToNextCommandFromCommand('access_parsing');
         }
     }
 
@@ -1196,9 +1204,9 @@ class DeployWebhookHandler extends WebhookHandler
 
         if ($editMessageId) {
             return $this->chat->edit($editMessageId)->message($message)->keyboard($keyboard);
-        } else {
-            return $this->chat->message($message)->keyboard($keyboard);
         }
+
+        return $this->chat->message($message)->keyboard($keyboard);
     }
 
     protected function processDeploymentSettingsInput(Stringable $text): void
@@ -1253,7 +1261,7 @@ class DeployWebhookHandler extends WebhookHandler
         $backButton = $this->makeCallbackButton("<< Back to menu", 'configureDeploymentSettingsCallback', ['action' => 'back_to_main_menu_deployment_settings']);
 
         (match ($callbackButton->payload->get('action')) {
-            /// ----------------------
+            // / ----------------------
             'confirm_deployment_settings' => function () {
                 $this->reply('Deployment settings saved');
 
@@ -1272,7 +1280,7 @@ class DeployWebhookHandler extends WebhookHandler
 
                 $this->switchToNextCommandFromCommand('deployment_settings');
             },
-            /// ----------------------
+            // / ----------------------
             'show_main_menu_deployment_settings' => function () {
                 $this->deleteKeyboard();
 
@@ -1283,7 +1291,7 @@ class DeployWebhookHandler extends WebhookHandler
             'back_to_main_menu_deployment_settings' => function () {
                 $this->renderMainDeploymentSettingsMenu($this->messageId)->send();
             },
-            /// ----------------------
+            // / ----------------------
             'server_paths' => function () use ($backButton) {
                 $this->chat->edit($this->messageId)->markdown('Change server paths:')->keyboard(function (Keyboard $keyboard) use ($backButton) {
                     $buttons = [
