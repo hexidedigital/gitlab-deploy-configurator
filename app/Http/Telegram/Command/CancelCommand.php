@@ -17,6 +17,6 @@ trait CancelCommand
 
         $this->resetChatContext();
 
-        $this->chat->message('Operation canceled')->send();
+        $this->chat->message('Operation canceled')->removeReplyKeyboard()->send();
     }
 }
