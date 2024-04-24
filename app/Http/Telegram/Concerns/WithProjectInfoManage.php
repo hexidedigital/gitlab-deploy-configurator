@@ -31,11 +31,11 @@ trait WithProjectInfoManage
         try {
             return $this->gitLabService->throwOnGitlabException()->findProject($projectId);
         } catch (Gitlab\Exception\RuntimeException $exception) {
-            $this->reply("❗ {$exception->getMessage()}");
+            $this->chat->message("❗ {$exception->getMessage()}")->send();
         } catch (Throwable $exception) {
             report($exception);
 
-            $this->reply("❗ Unexpected error occurred! {$exception->getMessage()}");
+            $this->chat->message("❗ Unexpected error occurred! {$exception->getMessage()}")->send();
         }
 
         throw new Halt();
@@ -148,7 +148,7 @@ trait WithProjectInfoManage
     {
         $project = $this->resolveProject($projectId);
         if (is_null($project)) {
-            $this->reply('Sorry, but I couldn\'t find the project you selected. Please try to select again.');
+            $this->chat->message('Sorry, but I couldn\'t find the project you selected. Please try to select again.')->send();
 
             throw new Halt();
         }

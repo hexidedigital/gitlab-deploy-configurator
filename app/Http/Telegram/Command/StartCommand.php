@@ -16,7 +16,7 @@ trait StartCommand
         $chatUser = User::where('telegram_id', $fromUser->id())->first();
         if (!$chatUser) {
             if (!app(GeneralSettings::class)->released) {
-                $this->reply('Registration is currently disabled. Wait for the release');
+                $this->chat->message('💥 Registration is currently disabled. Wait for the release 😉')->send();
 
                 return;
             }
@@ -41,12 +41,17 @@ trait StartCommand
                 'telegram_token' => null,
             ]);
 
-            $this->reply('You have successfully connected your Telegram account');
+            $this->chat->message('You have successfully connected your Telegram account')->send();
 
             return;
         }
 
-        $this->reply('You have already connected your Telegram account');
+        $chatUser->update([
+            // force reset token
+            'telegram_token' => null,
+        ]);
+
+        $this->chat->message('🤨 You have already connected your Telegram account')->send();
     }
 
     private function extractToken(): string
@@ -65,7 +70,7 @@ trait StartCommand
     {
         $user = User::where('telegram_token', $token)->first();
         if (!$user) {
-            $this->reply('Sorry, I can\'t find the user with this token');
+            $this->chat->message('Sorry, I can\'t find the user with this token')->send();
 
             throw new Halt();
         }
@@ -86,7 +91,7 @@ trait StartCommand
             'telegram_token' => null,
         ]);
 
-        $this->chat->html('Welcome to Deploy Configurator, ' . $user->name)->send();
-        $this->reply('You have successfully connected your Telegram account');
+        $this->chat->message('👋 Welcome to Deploy Configurator, ' . $user->name)->send();
+        $this->chat->message('You have successfully connected your Telegram account')->send();
     }
 }

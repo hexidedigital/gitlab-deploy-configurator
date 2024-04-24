@@ -119,6 +119,8 @@ before('artisan:migrate', function () {
     }
 });
 
+task('artisan:app:configure-telegram', artisan('app:configure-telegram'));
+
 // if project uses Telescope, recommended prune old entries
 //after('artisan:migrate', 'artisan:telescope:prune');
 
@@ -142,7 +144,7 @@ task('deploy', [
     'artisan:storage:link',
 
     // remove all cached files or run
-    // 'artisan:optimize:clear',
+    'artisan:optimize:clear',
     // or call individually only needed
     /* 'artisan:cache:clear',    */
     /* 'artisan:config:clear',   */
@@ -152,6 +154,7 @@ task('deploy', [
     /* 'artisan:view:clear',     */
 
     'artisan:migrate',
+    'artisan:app:configure-telegram',
 
     'deploy:publish',
 ]);

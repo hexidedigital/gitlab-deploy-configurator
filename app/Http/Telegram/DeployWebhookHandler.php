@@ -51,7 +51,8 @@ class DeployWebhookHandler extends WebhookHandler
         'startconfiguration',
         'retry',
         'restart',
-        'status',
+        'step',
+        'back',
     ];
 
     protected array $callbacks = [
@@ -64,9 +65,9 @@ class DeployWebhookHandler extends WebhookHandler
     protected function welcomeMessage(): void
     {
         $this->reply(
-            "Hello! To get started with the bot, you should connect your Telegram account to Deploy Configurator.
-        \n\nTo do this, go to the Deploy Configurator website and scan the QR code from the Profile page to connect your Telegram account.
-        \n\nIf you don't have account for Deploy Configurator, create at " . url('/')
+            "Hello! To get started with me, you should connect your Telegram account to the Deploy Configurator." .
+            "\n\nTo do this, go to the Deploy Configurator website and scan the QR code from the Profile page to connect your Telegram account." .
+            "\n\nIf you don't have an account for the Deploy Configurator, create one at " . url('/')
         );
     }
 
@@ -95,7 +96,7 @@ class DeployWebhookHandler extends WebhookHandler
         if ($this->message?->chat()?->type() === Chat::TYPE_PRIVATE) {
             $this->makePreparationsForWork();
 
-            $this->chat->message('Sorry, I don\'t understand this command. Show available commands: /help')->send();
+            $this->chat->message("Sorry, but I don't understand this command. To see a list of available commands, please use the /help command.")->send();
         }
     }
 
@@ -117,7 +118,7 @@ class DeployWebhookHandler extends WebhookHandler
 
         report($throwable);
 
-        $this->chat->message('Sorry man, I failed :(')->send();
+        $this->chat->message('Sorry man, I failed 🤕')->send();
 
         if ($this->user->isRoot()) {
             $this->chat->message($throwable->getMessage())->send();
@@ -128,27 +129,56 @@ class DeployWebhookHandler extends WebhookHandler
     // Debug commands
     // ------------------------------------
 
+    protected function asserHasActiveCommand(): void
+    {
+        if ($this->chatContext->current_command) {
+            return;
+        }
+
+        $this->chat->message('💤 No active step')->removeReplyKeyboard()->send();
+
+        throw new Halt();
+    }
+
     public function retry(): void
     {
         $this->makePreparationsForWork();
 
-        $this->executeNextCommand($this->chatContext->current_command);
+        $this->asserHasActiveCommand();
+
+        $this->executeCommandPrompt($this->chatContext->current_command);
     }
 
     public function restart(): void
     {
         $this->makePreparationsForWork();
 
-        $this->cancel();
+        if ($this->chatContext->current_command) {
+            $this->cancel();
+        }
         $this->startconfiguration();
     }
 
-    public function status(): void
+    public function step(): void
     {
         $this->makePreparationsForWork();
 
-        $cmd = $this->chatContext->current_command ?: '_null_';
-        $this->chat->markdown("Status: *{$cmd}*")->send();
+        $this->asserHasActiveCommand();
+
+        $command = str($this->chatContext->current_command)->kebab()->replace(['-', '_'], ' ')->lower();
+
+        $this->chat->markdown("🔗 Current step: *{$command}*")->send();
+    }
+
+    public function back(): void
+    {
+        $this->makePreparationsForWork();
+
+        $this->asserHasActiveCommand();
+
+        $this->chat->message('↩ Going back...')->send();
+
+        $this->switchBackFrom($this->chatContext->current_command);
     }
 
     // ------------------------------------
@@ -205,9 +235,32 @@ class DeployWebhookHandler extends WebhookHandler
         };
     }
 
+    protected function switchBackFrom(string $currentCommand): void
+    {
+        $prevCommand = match ($this->chatContext->current_command) {
+            'selecting_project' => 'start_configuration',
+            'selecting_branch' => 'selecting_project',
+            'selecting_ci_cd_options' => 'selecting_branch',
+            'access_parsing' => 'selecting_ci_cd_options',
+            'deployment_settings' => 'access_parsing',
+            default => $this->chatContext->current_command,
+        };
+
+        if ($this->user->isRoot()) {
+            $this->chat->message("{$prevCommand} ⬅ {$currentCommand}")->send();
+        }
+
+        $this->chatContext->fill([
+            'current_command' => $prevCommand,
+        ]);
+
+        $this->executeCommandPrompt($prevCommand);
+    }
+
     protected function switchToNextCommandFromCommand(string $currentCommand): void
     {
         $nextCommand = match ($currentCommand) {
+            'start_configuration' => 'selecting_project',
             'selecting_project' => 'selecting_branch',
             'selecting_branch' => 'selecting_ci_cd_options',
             'selecting_ci_cd_options' => 'access_parsing',
@@ -224,12 +277,13 @@ class DeployWebhookHandler extends WebhookHandler
             'current_command' => $nextCommand,
         ]);
 
-        $this->executeNextCommand($nextCommand);
+        $this->executeCommandPrompt($nextCommand);
     }
 
-    protected function executeNextCommand(?string $nextCommand): void
+    protected function executeCommandPrompt(?string $command): void
     {
-        match ($nextCommand) {
+        match ($command) {
+            'selecting_project' => $this->promptToSelectProject(),
             'selecting_branch' => $this->promptToSelectBranchName(),
             'selecting_ci_cd_options' => $this->promptToConfigureCiCdOptions(),
             'access_parsing' => $this->promptForAccessInput(),
@@ -272,12 +326,15 @@ class DeployWebhookHandler extends WebhookHandler
 
         $this->resetChatContext();
 
-        $this->chatContext->update(['current_command' => 'selecting_project']);
-
         $this->chatContext->pushToState(['openedAt' => now()]);
 
-        $this->chat->message('Alright, let\'s start configuring the deployment. Firstly, select project')->send();
+        $this->chat->message('Alright, let\'s start configuring the deployment 🛠. Firstly, select project 🦊')->removeReplyKeyboard()->send();
 
+        $this->switchToNextCommandFromCommand('start_configuration');
+    }
+
+    protected function promptToSelectProject(): void
+    {
         $response = $this->chat->message('Connecting to GitLab with your gitlab token...')->send();
 
         $this->loading();
@@ -285,17 +342,19 @@ class DeployWebhookHandler extends WebhookHandler
         $gitLabProjects = $this->gitLabService->fetchProjectFromGitLab(['per_page' => 10]);
 
         if ($gitLabProjects->isEmpty()) {
-            $this->reply('Sorry, I couldn\'t find any projects for you. Please check your GitLab token and try again.');
+            $this->chat->message('Sorry, I couldn\'t find any projects for you. Please check your GitLab token and try again.')->send();
 
             return;
         }
 
         $telegraphResponse = $this->chat
-            ->message(
-                "Please, select project from list bellow, there is last 10 projects.\n\n"
-                . "If you can't find your project in list, please just type the name of the project in the chat and I will try to find it for you."
-            )
+            ->message("Please, select project from list bellow, there is last 10 projects.")
             ->keyboard($this->buildKeyboardForProjects($gitLabProjects))
+            ->send();
+
+        $this->chat
+            ->message("If you can't find your project in list, please just type the name of the project and I will try to find it.")
+            ->replyKeyboard($this->replyKeyboardForProjects())
             ->send();
 
         $this->chat->deleteMessage($response->telegraphMessageId())->send();
@@ -303,9 +362,19 @@ class DeployWebhookHandler extends WebhookHandler
         $this->processCallbackFrom($telegraphResponse->telegraphMessageId());
     }
 
+    protected function replyKeyboardForProjects(): ReplyKeyboard
+    {
+        return ReplyKeyboard::make()
+            ->button('frontend.')->button('web.')->button('backend.')
+            ->inputPlaceholder('🔍 Enter search term...')
+            ->oneTime()
+            ->chunk(3)
+            ->resize();
+    }
+
     protected function filterProjectByTerm(Stringable $text): void
     {
-        $this->chat->markdown("Ok, I will filter the projects by *{$text}*")->send();
+        $this->chat->markdown("🔍 looking projects projects by *{$text}* ...")->removeReplyKeyboard()->send();
 
         $this->loading();
 
@@ -314,7 +383,7 @@ class DeployWebhookHandler extends WebhookHandler
         $this->processCallbackFrom(null);
 
         if ($gitLabProjects->isEmpty()) {
-            $this->chat->message("Sorry, I couldn't find any projects for you. Please check your GitLab token and try again.")->send();
+            $this->chat->message("Sorry, I couldn't find any projects for you 🤷. Please check your GitLab token and try again.")->send();
 
             return;
         }
@@ -330,7 +399,7 @@ class DeployWebhookHandler extends WebhookHandler
     protected function buildKeyboardForProjects(Collection $records): Keyboard
     {
         if ($records->isEmpty()) {
-            $this->reply('Sorry, no records found. Please try again.');
+            $this->chat->message('Sorry, no records found. Please try again.')->send();
 
             return Keyboard::make()->buttons([]);
         }
@@ -373,7 +442,7 @@ class DeployWebhookHandler extends WebhookHandler
 
         $this->deleteKeyboard();
 
-        $this->chat->markdown("Great, project selected")->send();
+        $this->chat->markdown("Great, project selected 🦊")->send();
 
         $this->printCurrentInfoAboutProject();
 
@@ -407,7 +476,7 @@ class DeployWebhookHandler extends WebhookHandler
         $currentBranches = collect($branches)->map(fn ($branch) => $branch['name']);
 
         $this->chat
-            ->message('Now select stage/branch name to deploy. You can select from buttons or write custom name.')
+            ->message('🍒 Now select stage/branch name to deploy. You can select from buttons or write custom name.')
             ->replyKeyboard(function (ReplyKeyboard $keyboard) use ($currentBranches) {
                 $datalist = [
                     'dev',
@@ -464,14 +533,14 @@ class DeployWebhookHandler extends WebhookHandler
             'branch' => [
                 'name' => $branchName,
                 'need_confirm_to_force' => $isBranchExists,
-                'force_update' => false,
+                'force_update_confirmed' => false,
             ],
         ]);
 
         if ($isBranchExists) {
-            $this->chat->message("This branch exists. On force update, variables can be changed.")->send();
-            $this->chat->message("Force deploy to this branch?")->replyKeyboard(function (ReplyKeyboard $keyboard) {
-                return $keyboard->button('Yes')->button('No')->resize()->oneTime()->chunk(2);
+            $this->chat->message("This branch exists. When you confirm force update, variables and access keys can be changed.")->send();
+            $this->chat->message("Are you confirm to force deploy on this branch?")->replyKeyboard(function (ReplyKeyboard $keyboard) {
+                return $keyboard->button('Yes ✅')->button('No ❌')->resize()->oneTime()->chunk(2);
             })->send();
 
             return;
@@ -484,7 +553,9 @@ class DeployWebhookHandler extends WebhookHandler
     {
         $branchName = data_get($this->chatContext->state, 'branch.name');
 
-        if (!$answer->lower()->contains(['yes', 'no'])) {
+        $answer = $answer->before(' ')->lower();
+
+        if (!$answer->contains(['yes', 'no'])) {
             $this->chat->message("Please select Yes or No.")->send();
 
             return;
@@ -495,7 +566,7 @@ class DeployWebhookHandler extends WebhookHandler
 
             $this->chatContext->pushToState(['branch' => null]);
 
-            $this->promptToSelectBranchName();
+            $this->executeCommandPrompt('selecting_branch');
 
             return;
         }
@@ -506,7 +577,7 @@ class DeployWebhookHandler extends WebhookHandler
             'branch' => [
                 'name' => $branchName,
                 'need_confirm_to_force' => true,
-                'force_update' => true,
+                'force_update_confirmed' => true,
             ],
         ]);
 
@@ -549,7 +620,7 @@ class DeployWebhookHandler extends WebhookHandler
             Keyboard::make()->buttons(
                 $withButtons ? [
                     $this->makeCallbackButton('Change 🔧', 'configureCiCdOptionsCallback', ['action' => 'show_main_menu_ci_cd']),
-                    $this->makeCallbackButton('Confirm ✔', 'configureCiCdOptionsCallback', ['action' => 'confirm_ci_cd']),
+                    $this->makeCallbackButton('Confirm ✅', 'configureCiCdOptionsCallback', ['action' => 'confirm_ci_cd']),
                 ] : []
             )->chunk(2)
         )->send();
@@ -596,23 +667,23 @@ class DeployWebhookHandler extends WebhookHandler
 
         $keyboard = function (Keyboard $keyboard) use ($ciCdOptions, $templateInfo) {
             $buttons = [
-                $this->makeCallbackButton('Template', 'configureCiCdOptionsCallback', ['action' => 'select_template_group', 'current' => $ciCdOptions->template_group]),
+                $this->makeCallbackButton('Template 📦', 'configureCiCdOptionsCallback', ['action' => 'select_template_group', 'current' => $ciCdOptions->template_group]),
             ];
 
             if ($templateInfo->allowToggleStages) {
-                $buttons[] = $this->makeCallbackButton('Stages', 'configureCiCdOptionsCallback', [
+                $buttons[] = $this->makeCallbackButton('Stages 🧩', 'configureCiCdOptionsCallback', [
                     'action' => 'change_stages',
                 ]);
             }
 
             if ($this->canSelectNodeVersion($ciCdOptions, $templateInfo)) {
-                $buttons[] = $this->makeCallbackButton('Node.js', 'configureCiCdOptionsCallback', [
+                $buttons[] = $this->makeCallbackButton('Node.js 🐢', 'configureCiCdOptionsCallback', [
                     'action' => 'change_node',
                     'current' => $ciCdOptions->node_version,
                 ]);
             }
 
-            $buttons[] = $this->makeCallbackButton('Confirm ✔', 'configureCiCdOptionsCallback', [
+            $buttons[] = $this->makeCallbackButton('Confirm ✅', 'configureCiCdOptionsCallback', [
                 'action' => 'confirm_ci_cd',
             ]);
 
@@ -638,12 +709,12 @@ class DeployWebhookHandler extends WebhookHandler
         /** @var CallbackButton $callbackButton */
         $callbackButton = $this->chatContext->callbackButtons()->where('id', $this->data->get('c_id'))->firstOr(fn () => throw new Halt());
 
-        $backButton = $this->makeCallbackButton("<< Back to menu", 'configureCiCdOptionsCallback', ['action' => 'back_to_main_menu_ci_cd']);
+        $backButton = $this->makeCallbackButton("« Back to menu", 'configureCiCdOptionsCallback', ['action' => 'back_to_main_menu_ci_cd']);
 
         (match ($callbackButton->payload->get('action')) {
             // / ----------------------
             'confirm_ci_cd' => function () {
-                $this->reply('CI/CD options saved');
+                $this->reply('CI/CD options saved ✅');
 
                 $this->chat->deleteMessage($this->messageId)->send();
                 if ($mid = $this->chatContext->state->get('ci_cd_message_to_edit')) {
@@ -701,7 +772,7 @@ class DeployWebhookHandler extends WebhookHandler
                 }
 
                 $this->chat->edit($this->messageId)->markdown('Select template version: ')->keyboard(function (Keyboard $keyboard) use ($selectGroup) {
-                    $backButton = $this->makeCallbackButton("<< Back to templates", 'configureCiCdOptionsCallback', ['action' => 'select_template_group']);
+                    $backButton = $this->makeCallbackButton("« Back to templates", 'configureCiCdOptionsCallback', ['action' => 'select_template_group']);
 
                     $buttons = collect((new CiCdTemplateRepository())->getTemplatesForGroup($selectGroup))
                         ->map(function (TemplateInfo $templateInfo) use ($selectGroup) {
@@ -743,7 +814,7 @@ class DeployWebhookHandler extends WebhookHandler
                     'ci_cd_options' => array_merge($this->chatContext->context_data['ci_cd_options'], $newOptions),
                 ]);
 
-                $this->reply('Template changed!');
+                $this->reply('Template changed ✅');
 
                 $this->renderMainCiCdMenu($this->messageId)->send();
 
@@ -848,7 +919,7 @@ class DeployWebhookHandler extends WebhookHandler
         $stage = data_get($this->chatContext->context_data, 'stages.0');
 
         $this->chat->markdown(
-            "Now to continue, send me access data for *{$stage['name']}* server in the following format: "
+            "🛡 Now to continue, send me access data for *{$stage['name']}* server in the following format: "
             . "\n*Split each access group only by one line and without empty lines between*."
             . "\n\nFor example:"
         )->send();
@@ -890,8 +961,10 @@ class DeployWebhookHandler extends WebhookHandler
         }
 
         if ($parseState['wait_for_confirm']) {
-            if ($text->lower()->is('no')) {
-                $this->chat->message('Hmm... Then send the new access data...')->removeReplyKeyboard()->send();
+            $answer = $text->before(' ')->lower();
+
+            if ($answer->is('no')) {
+                $this->chat->message('Hmm... Ok, send me a new access data...')->removeReplyKeyboard()->send();
 
                 $parseState['wait_for_access_input'] = true;
                 $this->chatContext->pushToState(['parse_state' => $parseState]);
@@ -899,7 +972,7 @@ class DeployWebhookHandler extends WebhookHandler
                 return;
             }
 
-            if (!$text->lower()->is('yes')) {
+            if (!$answer->is('yes')) {
                 $this->reply('Invalid option');
 
                 $parseState['wait_for_access_input'] = true;
@@ -1023,7 +1096,7 @@ class DeployWebhookHandler extends WebhookHandler
             ];
             $stage['options'] = array_merge($stage['options'], $newOptions);
 
-            $message = "Options for deployment:\n";
+            $message = "🧰 Options for deployment:\n";
             foreach ($newOptions as $name => $value) {
                 $title = str($name)->kebab()->replace(['-', '_'], ' ')->ucfirst()->value();
                 $message .= "\n- *{$title}*: `{$value}`";
@@ -1076,14 +1149,14 @@ class DeployWebhookHandler extends WebhookHandler
             'accessInfo' => $accessInfo = $parser->getAccessInfo($stageName),
         ]);
 
-        $this->chat->message('Access data parsed. Confirm all data is correct')->send();
+        $this->chat->message('Access data processed 🧾')->send();
 
         $message = '';
         foreach ($accessInfo as $type => $info) {
             $title = match ($type) {
-                'server' => 'Server',
-                'database' => 'MySQL',
-                'mail' => 'SMTP',
+                'server' => '🖥 Server',
+                'database' => '🐬 MySQL',
+                'mail' => '📨 SMTP',
             };
 
             $message .= "\n\n*{$title}*";
@@ -1092,8 +1165,10 @@ class DeployWebhookHandler extends WebhookHandler
             }
         }
 
-        $this->chat->markdown($message)->replyKeyboard(function (ReplyKeyboard $keyboard) {
-            return $keyboard->button('Yes')->button('No')->chunk(2)->resize()->oneTime()->inputPlaceholder('Parsed access info is correct?');
+        $this->chat->markdown($message)->send();
+
+        $this->chat->markdown('Are you confirm the parsed access data?')->replyKeyboard(function (ReplyKeyboard $keyboard) {
+            return $keyboard->button('Yes ✅')->button('No 🔁')->chunk(2)->resize()->oneTime()->inputPlaceholder('Choose option...');
         })->send();
 
         $notResolved = $parser->getNotResolved($stageName);
@@ -1160,7 +1235,7 @@ class DeployWebhookHandler extends WebhookHandler
             Keyboard::make()->buttons(
                 $withButtons ? [
                     $this->makeCallbackButton('Change 🔧', 'configureDeploymentSettingsCallback', ['action' => 'show_main_menu_deployment_settings']),
-                    $this->makeCallbackButton('Confirm ✔', 'configureDeploymentSettingsCallback', ['action' => 'confirm_deployment_settings']),
+                    $this->makeCallbackButton('Confirm ✅', 'configureDeploymentSettingsCallback', ['action' => 'confirm_deployment_settings']),
                 ] : []
             )->chunk(2)
         )->send();
@@ -1175,7 +1250,7 @@ class DeployWebhookHandler extends WebhookHandler
             'bin-composer' => $options->binComposer,
         ];
 
-        $message = "Options for deployment:\n";
+        $message = "🧰 Options for deployment:\n";
         foreach ($newOptions as $name => $value) {
             $title = str($name)->kebab()->replace(['-', '_'], ' ')->ucfirst()->value();
             $message .= "\n- *{$title}*: `{$value}`";
@@ -1195,7 +1270,7 @@ class DeployWebhookHandler extends WebhookHandler
                 // $this->makeCallbackButton('Other options', 'configureDeploymentSettingsCallback', ['action' => 'other_options']),
             ];
 
-            $buttons[] = $this->makeCallbackButton('Nothing, continue', 'configureDeploymentSettingsCallback', [
+            $buttons[] = $this->makeCallbackButton('Nothing, continue ✅', 'configureDeploymentSettingsCallback', [
                 'action' => 'confirm_deployment_settings',
             ]);
 
@@ -1258,12 +1333,12 @@ class DeployWebhookHandler extends WebhookHandler
         /** @var CallbackButton $callbackButton */
         $callbackButton = $this->chatContext->callbackButtons()->where('id', $this->data->get('c_id'))->firstOr(fn () => throw new Halt());
 
-        $backButton = $this->makeCallbackButton("<< Back to menu", 'configureDeploymentSettingsCallback', ['action' => 'back_to_main_menu_deployment_settings']);
+        $backButton = $this->makeCallbackButton("« Back to menu", 'configureDeploymentSettingsCallback', ['action' => 'back_to_main_menu_deployment_settings']);
 
         (match ($callbackButton->payload->get('action')) {
             // / ----------------------
             'confirm_deployment_settings' => function () {
-                $this->reply('Deployment settings saved');
+                $this->reply('Deployment settings saved ✅');
 
                 $this->chat->deleteMessage($this->messageId)->send();
                 if ($mid = $this->chatContext->state->get('deployment_settings_message_to_edit')) {
@@ -1360,7 +1435,7 @@ class DeployWebhookHandler extends WebhookHandler
 
         $this->chat->message('Press "Confirm" to start deployment.')->keyboard(
             Keyboard::make()->buttons([
-                $this->makeCallbackButton('Confirm ✔', 'handleConfirmationCallback', ['action' => 'setupRepository']),
+                $this->makeCallbackButton('Confirm ✅', 'handleConfirmationCallback', ['action' => 'setupRepository']),
                 // $this->makeCallbackButton('Change project details', 'configureProjectCallback', ['action' => 'show_main_menu_project']),
                 // $this->makeCallbackButton('Change CI/CD options', 'configureCiCdOptionsCallback', ['action' => 'show_main_menu_ci_cd']),
                 // $this->makeCallbackButton('Change deployment settings', 'configureDeploymentSettingsCallback', ['action' => 'show_main_menu_deployment_settings']),
@@ -1383,14 +1458,13 @@ class DeployWebhookHandler extends WebhookHandler
         if ($callbackButton->payload->get('action') === 'setupRepository') {
             $this->chat->deleteMessage($this->messageId)->send();
 
-            $this->chat->message('Preparing payload...')->send();
             $this->loading();
 
             $this->startToSetupRepository();
 
             $this->chat->message('🎉')->send();
 
-            $this->chat->message('Repository is being configured. Please wait...')->send();
+            $this->chat->message('Your data saved and project will be deployed soon.')->send();
 
             $this->finish();
         }

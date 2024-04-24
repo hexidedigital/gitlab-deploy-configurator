@@ -19,16 +19,14 @@ class RegisterBotCommandsCommand extends Command
         $this->info('Registering commands for ' . $mainTelegramBot . '...');
 
         $commands = [
-            'help' => 'Show available commands',
             'startconfiguration' => 'Start configuration process',
-            'cancel' => 'Cancel current operation',
         ];
-
-        if (config('app.debug')) {
-            $commands['retry'] = 'Retry last operation';
-            $commands['restart'] = 'Restart configuration process';
-            $commands['status'] = 'Show current status';
-        }
+        $commands['step'] = 'Show current configuration step';
+        $commands['retry'] = 'Retry/Show last operation prompt';
+        $commands['back'] = 'Go back to previous step';
+        $commands['cancel'] = 'Cancel configuration process';
+        $commands['restart'] = 'Restarts configuration process';
+        $commands['help'] = 'Show help message';
 
         $telegraphResponse = TelegraphBot::where('name', $mainTelegramBot)->first()?->registerCommands($commands)->send();
 

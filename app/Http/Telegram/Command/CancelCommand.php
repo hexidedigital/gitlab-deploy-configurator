@@ -10,13 +10,13 @@ trait CancelCommand
 
         if (is_null($this->chatContext->current_command)) {
             // What do you want?
-            $this->chat->message('Hey! Don\'t touch me, you have no active command to cancel. I\'m go back to sleep. Zzzz...')->send();
+            $this->chat->markdown('Hey 😑! Don\'t touch me, you have no active command to cancel. I\'m go back to sleep 😴  _Zzzz_...')->send();
 
             return;
         }
 
         $this->resetChatContext();
 
-        $this->chat->message('Operation canceled')->removeReplyKeyboard()->send();
+        $this->chat->message('Project configuration has been cancelled.')->send();
     }
 }
