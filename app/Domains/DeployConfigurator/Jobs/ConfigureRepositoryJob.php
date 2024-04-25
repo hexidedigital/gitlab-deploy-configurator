@@ -156,10 +156,6 @@ class ConfigureRepositoryJob implements ShouldQueue
                     'logs' => $this->logWriter->getLogBag(),
                     'finished_at' => now(),
                 ]);
-
-                if ($this->isTestingProject() && empty($exception)) {
-                    $this->release(60 * 2);
-                }
             } catch (Throwable $exception) {
                 $this->logWriter->error('Failed to process stage ' . $this->currentStageInfo->name, [
                     'exception' => $exception->getMessage(),
