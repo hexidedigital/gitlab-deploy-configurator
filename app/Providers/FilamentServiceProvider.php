@@ -57,7 +57,7 @@ class FilamentServiceProvider extends ServiceProvider
 
         Notifications::alignment(Alignment::Right);
 
-        FilamentView::registerRenderHook(PanelsRenderHook::AUTH_LOGIN_FORM_AFTER, fn () => view('login-link'));
+        FilamentView::registerRenderHook(PanelsRenderHook::AUTH_LOGIN_FORM_AFTER, fn () => view('filament.login-link'));
         FilamentView::registerRenderHook(PanelsRenderHook::HEAD_END, fn () => view('meta'));
     }
 

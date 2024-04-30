@@ -178,7 +178,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                     $stages = $deployConfigBuilder->processStages();
 
                     return [
-                        Forms\Components\View::make('helpful-suggestion')
+                        Forms\Components\View::make('deployer.helpful-suggestion')
                             ->viewData([
                                 'stages' => $stages,
                             ]),

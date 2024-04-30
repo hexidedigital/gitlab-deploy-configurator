@@ -321,7 +321,7 @@ class ConfigureRepositoryJob implements ShouldQueue
         // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
         $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($this->ciCdOptions->template_group, $this->ciCdOptions->template_key);
 
-        $gitlabCiYmlContent = view('gitlab-ci-yml', [
+        $gitlabCiYmlContent = view('gitlab-templates.gitlab-ci-yml', [
             'templateType' => $this->ciCdOptions->template_group,
             'templateName' => $templateInfo->templateName,
             'nodeVersion' => $this->ciCdOptions->node_version,
@@ -783,7 +783,7 @@ class ConfigureRepositoryJob implements ShouldQueue
 
         $content = str($currentContent);
         $variableBag = $this->state->getGitlabVariablesBag();
-        $bashAliasesContent = view('bash_aliases', [
+        $bashAliasesContent = view('deployer.bash_aliases', [
             'artisanCompletion' => $options->artisanCompletion && !$content->contains(['complete -F', '_artisan']),
             'artisanAliases' => $options->artisanAliases && !$content->contains(['alias artisan=', 'alias a=']),
             'composerAlias' => $options->composerAlias && !$content->contains(['alias pcomopser=']),

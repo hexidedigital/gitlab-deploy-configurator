@@ -19,7 +19,7 @@ class DeployerPhpGenerator
 
         $renderVariables = !is_null($stageName) && !is_null($stageConfig) && $generateWithVariables;
 
-        return view('deployer', [
+        return view('deployer.deployer', [
             'applicationName' => $this->projectDetails->name,
             'githubOathToken' => config('services.gitlab.deploy_token'),
             'renderVariables' => $renderVariables,
