@@ -2,10 +2,18 @@
 
 namespace App\Domains\DeployConfigurator;
 
+use App\Domains\DeployConfigurator\Data\TemplateGroup;
 use App\Domains\DeployConfigurator\Data\TemplateInfo;
 
 class CiCdTemplateRepository
 {
+    public function latestForGroup(string $templateGroup): ?TemplateInfo
+    {
+        return collect($this->getTemplatesForGroup($templateGroup))
+            ->filter(fn (TemplateInfo $template) => !$template->isDisabled)
+            ->last();
+    }
+
     /**
      * @param string|null $templateGroup
      * @return array<string, TemplateInfo>
@@ -13,29 +21,32 @@ class CiCdTemplateRepository
     public function getTemplatesForGroup(?string $templateGroup): array
     {
         return match ($templateGroup) {
-            'backend' => $this->backendTemplates(),
-            'frontend' => $this->frontendTemplates(),
+            TemplateGroup::Backend => $this->backendTemplates($this->getTemplateGroups()[TemplateGroup::Backend]),
+            TemplateGroup::Frontend => $this->frontendTemplates($this->getTemplateGroups()[TemplateGroup::Frontend]),
             default => [],
         };
     }
 
-    public function templateGroups(): array
+    /**
+     * @return array{backend: TemplateGroup, frontend: TemplateGroup}
+     */
+    public function getTemplateGroups(): array
     {
         return [
-            'backend' => [
-                'key' => 'backend',
-                'name' => 'Backend (Laravel)',
-                'icon' => '🏴',
-            ],
-            'frontend' => [
-                'key' => 'frontend',
-                'name' => 'Frontend (Vue, React)',
-                'icon' => '🦄',
-            ],
+            TemplateGroup::Backend => new TemplateGroup(
+                key: TemplateGroup::Backend,
+                name: 'Backend (Laravel)',
+                icon: '🏴',
+            ),
+            TemplateGroup::Frontend => new TemplateGroup(
+                key: TemplateGroup::Frontend,
+                name: 'Frontend (Vue, React, Nuxt)',
+                icon: '🦄',
+            ),
         ];
     }
 
-    public function getTemplateInfo(string $group, string $key): ?TemplateInfo
+    public function getTemplateInfo(string $group, ?string $key): ?TemplateInfo
     {
         return collect($this->getTemplatesForGroup($group))->get($key);
     }
@@ -43,35 +54,35 @@ class CiCdTemplateRepository
     /**
      * @return array<string, TemplateInfo>
      */
-    protected function backendTemplates(): array
+    protected function backendTemplates(TemplateGroup $group): array
     {
         return [
             'laravel_2_0' => new TemplateInfo(
                 key: 'laravel_2_0',
                 name: '2.0 - Webpack',
                 templateName: 'laravel.2.0',
-                group: 'backend',
+                group: $group,
                 isDisabled: true,
             ),
             'laravel_2_1' => new TemplateInfo(
                 key: 'laravel_2_1',
                 name: '2.1 - Vite',
                 templateName: 'laravel.2.1',
-                group: 'backend',
+                group: $group,
                 isDisabled: true,
             ),
             'laravel_2_2' => new TemplateInfo(
                 key: 'laravel_2_2',
                 name: '2.2 - Vite + Composer stage',
                 templateName: 'laravel.2.2',
-                group: 'backend',
+                group: $group,
                 isDisabled: true,
             ),
             'laravel_3_0' => new TemplateInfo(
                 key: 'laravel_3_0',
                 name: '3.0 - Configurable',
                 templateName: 'laravel.3.0',
-                group: 'backend',
+                group: $group,
                 isDisabled: false,
                 allowToggleStages: true,
                 canSelectNodeVersion: true,
@@ -82,35 +93,43 @@ class CiCdTemplateRepository
     /**
      * @return array<string, TemplateInfo>
      */
-    protected function frontendTemplates(): array
+    protected function frontendTemplates(TemplateGroup $group): array
     {
         return [
             'react_latest' => new TemplateInfo(
                 key: 'react_latest',
-                name: 'react (latest)',
+                name: 'React',
                 templateName: 'react.latest',
-                group: 'frontend',
-                isDisabled: true,
-                canSelectNodeVersion: false,
-                hasBuildFolder: false,
-            ),
-            'vue_2_0' => new TemplateInfo(
-                key: 'vue_2_0',
-                name: 'vue (2.0)',
-                templateName: 'vue.2.0',
-                group: 'frontend',
-                isDisabled: true,
-                canSelectNodeVersion: false,
-                hasBuildFolder: false,
+                group: $group,
+                canSelectNodeVersion: true,
+                hasBuildFolder: true,
+                extra: [
+                    'preferredBuildFolder' => 'build',
+                    'preferredBuildType' => 'yarn',
+                ],
             ),
             'vue_latest' => new TemplateInfo(
                 key: 'vue_latest',
-                name: 'vue (latest)',
+                name: 'Vue',
                 templateName: 'vue.latest',
-                group: 'frontend',
-                isDisabled: false,
+                group: $group,
                 canSelectNodeVersion: true,
                 hasBuildFolder: true,
+                extra: [
+                    'preferredBuildFolder' => 'dist',
+                    'preferredBuildType' => 'npm',
+                ],
+            ),
+            'nuxt_latest' => new TemplateInfo(
+                key: 'nuxt_latest',
+                name: 'Nuxt',
+                templateName: 'nuxt.latest',
+                group: $group,
+                canSelectNodeVersion: true,
+                hasBuildFolder: false,
+                extra: [
+                    'preferredBuildType' => 'npm',
+                ],
             ),
         ];
     }

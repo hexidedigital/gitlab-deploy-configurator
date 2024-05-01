@@ -4,6 +4,7 @@ namespace App\Domains\DeployConfigurator\Jobs;
 
 use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Domains\DeployConfigurator\ContentGenerators\DeployerPhpGenerator;
+use App\Domains\DeployConfigurator\ContentGenerators\GitlabCiCdYamlGenerator;
 use App\Domains\DeployConfigurator\Data\CiCdOptions;
 use App\Domains\DeployConfigurator\Data\ProjectDetails;
 use App\Domains\DeployConfigurator\Data\Stage\StageInfo;
@@ -22,10 +23,10 @@ use DefStudio\Telegraph\Models\TelegraphChat;
 use Exception;
 use Filament\Notifications\Actions\Action;
 use Filament\Notifications\Notification;
-use HexideDigital\GitlabDeploy\DeployerState;
+use App\Domains\DeployConfigurator\DeployerState;
+use App\Domains\DeployConfigurator\Helpers\Builders\ConfigurationBuilder;
 use HexideDigital\GitlabDeploy\Gitlab\Tasks\GitlabVariablesCreator;
 use HexideDigital\GitlabDeploy\Gitlab\Variable;
-use HexideDigital\GitlabDeploy\Helpers\Builders\ConfigurationBuilder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -316,24 +317,23 @@ class ConfigureRepositoryJob implements ShouldQueue
         $this->taskInsertCustomAliasesOnRemoteHost();
     }
 
+    private function isFrontend(): bool
+    {
+        return once(function () {
+            $templateGroup = (new CiCdTemplateRepository())->getTemplateGroups()[$this->ciCdOptions->template_group];
+
+            return $templateGroup->isFrontend();
+        });
+    }
+
     private function taskCreateCommitWithConfigFiles(): void
     {
         // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
-        $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($this->ciCdOptions->template_group, $this->ciCdOptions->template_key);
-
-        $gitlabCiYmlContent = view('gitlab-templates.gitlab-ci-yml', [
-            'templateType' => $this->ciCdOptions->template_group,
-            'templateName' => $templateInfo->templateName,
-            'nodeVersion' => $this->ciCdOptions->node_version,
-            'buildFolder' => $this->ciCdOptions->build_folder,
-            'buildStageEnabled' => $this->ciCdOptions->isStageEnabled('build'),
-        ])->render();
-
         $actions = collect([
             [
                 // "action" => "create",
                 "file_path" => ".gitlab-ci.yml",
-                "content" => $gitlabCiYmlContent,
+                "content" => (new GitlabCiCdYamlGenerator($this->ciCdOptions))->render(),
             ],
             [
                 // "action" => "create",
@@ -341,6 +341,11 @@ class ConfigureRepositoryJob implements ShouldQueue
                 "content" => (new DeployerPhpGenerator($this->projectDetails))->render($this->currentStageInfo),
             ],
         ])->map(function (array $action) {
+            // skip deploy.php for frontend projects
+            if ($this->isFrontend() && $action['file_path'] == 'deploy.php') {
+                return null;
+            }
+
             $generatedContent = $action['content'];
 
             // check if file exists
@@ -363,7 +368,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             $action['encoding'] = 'base64';
 
             return $action;
-        })->filter();
+        })->values()->filter();
 
         // if files without changes, just create branch
         if ($actions->isEmpty()) {
@@ -413,7 +418,7 @@ class ConfigureRepositoryJob implements ShouldQueue
     {
         $this->state->setStage($this->state->getConfigurations()->stageBag->get($this->currentStageInfo->name));
         $this->state->setupReplacements();
-        $this->state->setupGitlabVariables();
+        $this->state->setupGitlabVariables($this->isFrontend());
 
         // rewrite replacements
         $this->state->getReplacements()->merge([
@@ -575,14 +580,14 @@ class ConfigureRepositoryJob implements ShouldQueue
                 new Variable(
                     key: 'CI_COMPOSER_STAGE',
                     scope: '*',
-                    value: $this->ciCdOptions->isStageDisabled('prepare') ? 0 : 1,
+                    value: $this->ciCdOptions->isStageDisabled(CiCdOptions::PrepareStage) ? 0 : 1,
                 )
             );
             $variableBag->add(
                 new Variable(
                     key: 'CI_BUILD_STAGE',
                     scope: '*',
-                    value: $this->ciCdOptions->isStageDisabled('build') ? 0 : 1,
+                    value: $this->ciCdOptions->isStageDisabled(CiCdOptions::BuildStage) ? 0 : 1,
                 )
             );
         }
@@ -697,6 +702,10 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function taskPrepareAndCopyDotEnvFileForRemote(): void
     {
+        if ($this->isFrontend()) {
+            return;
+        }
+
         $envExampleFileContent = $this->gitLabService->getFileContent($this->gitlabProject, '.env.example');
 
         // /home/user
@@ -768,6 +777,10 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function taskInsertCustomAliasesOnRemoteHost(): void
     {
+        if ($this->isFrontend()) {
+            return;
+        }
+
         $options = $this->currentStageInfo->options->bashAliases;
         if (!$options->insert) {
             $this->logWriter->info('Custom aliases not enabled for stage');

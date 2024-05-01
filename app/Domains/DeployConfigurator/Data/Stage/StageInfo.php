@@ -2,9 +2,9 @@
 
 namespace App\Domains\DeployConfigurator\Data\Stage;
 
-use HexideDigital\GitlabDeploy\DeploymentOptions\Options\Database;
-use HexideDigital\GitlabDeploy\DeploymentOptions\Options\Mail;
-use HexideDigital\GitlabDeploy\DeploymentOptions\Options\Server;
+use App\Domains\DeployConfigurator\DeploymentOptions\Options\Database;
+use App\Domains\DeployConfigurator\DeploymentOptions\Options\Mail;
+use App\Domains\DeployConfigurator\DeploymentOptions\Options\Server;
 
 readonly class StageInfo
 {

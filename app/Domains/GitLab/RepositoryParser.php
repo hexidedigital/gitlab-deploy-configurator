@@ -18,15 +18,40 @@ class RepositoryParser
 
         $laravelVersion = data_get($composerJson, 'require.laravel/framework');
 
-        $adminPanel = $this->checkForAdminPanel($composerJson);
+        $adminPanel = $this->getResult([
+            'adminlte' => fn () => data_get($composerJson, 'require.jeroennoten/laravel-adminlte'),
+            'filament' => fn () => data_get($composerJson, 'require.filament/filament'),
+            'voyager' => fn () => data_get($composerJson, 'require.tcg/voyager'),
+        ], 'no admin panel');
 
         $template = $this->chooseTemplateForLaravelVersion($composerJson, $adminPanel);
 
         return [
             'repository_template' => $template,
-            'laravel_version' => $laravelVersion,
+            'framework_version' => $laravelVersion,
             'is_laravel' => true,
             'admin_panel' => $adminPanel,
+        ];
+    }
+
+    public function parseTemplateForFrontend(ProjectData $project): array
+    {
+        $packageJson = Utils::jsonDecode($this->gitLabService->throwOnGitlabException()->getFileContent($project, 'package.json'), true);
+
+        $getVersion = fn (string $package) => data_get($packageJson, "devDependencies.{$package}", data_get($packageJson, "dependencies.{$package}"));
+
+        $framework = $this->getResult([
+            'nuxt' => fn () => !is_null($getVersion('nuxt')),
+            'react' => fn () => !is_null($getVersion('react')),
+            'vue' => fn () => !is_null($getVersion('vue')),
+        ], 'no frontend framework');
+
+        $frameworkVersion = $getVersion($framework);
+
+        return [
+            'repository_template' => $framework,
+            'framework_version' => $frameworkVersion,
+            'is_node' => true,
         ];
     }
 
@@ -34,25 +59,16 @@ class RepositoryParser
     {
         $packageJson = Utils::jsonDecode($this->gitLabService->throwOnGitlabException()->getFileContent($project, 'package.json'), true);
 
-        $isInDependencies = fn (string $package) => data_get($packageJson, "devDependencies.{$package}", data_get($packageJson, "dependencies.{$package}"));
+        $getVersion = fn (string $package) => data_get($packageJson, "devDependencies.{$package}", data_get($packageJson, "dependencies.{$package}"));
 
-        $builders = [
-            'vite',
-            'webpack',
-            'laravel-mix',
-        ];
-
-        $frontendBuilder = '-';
-        foreach ($builders as $builder) {
-            if ($isInDependencies($builder)) {
-                $frontendBuilder = $builder;
-
-                break;
-            }
-        }
+        $builder = $this->getResult([
+            'vite' => fn () => !is_null($getVersion('vite')),
+            'webpack' => fn () => !is_null($getVersion('webpack')),
+            'laravel-mix' => fn () => !is_null($getVersion('laravel-mix')),
+        ], 'no frontend builder or not resolved');
 
         return [
-            'frontend_builder' => $frontendBuilder,
+            'frontend_builder' => $builder,
         ];
     }
 
@@ -84,39 +100,24 @@ class RepositoryParser
 
         $templates = [
             // without yajra
-            'laravel-11' => fn ($v) => !$usesYajra && $between(11, 12),
-            'hd-based-template-8' => fn ($v) => !$usesYajra && $isAdminlte && $between(8, 10),
+            'laravel-11' => fn () => !$usesYajra && $between(11, 12),
+            'hd-based-template-8' => fn () => !$usesYajra && $isAdminlte && $between(8, 10),
             // with yajra
-            'islm-based-template' => fn ($v) => $usesYajra && $isAdminlte && $between(9, 11),
-            'old-hd-base-template' => fn ($v) => $usesYajra && $isAdminlte && $between(5, 9),
-
-            '' => fn ($v) => true,
+            'islm-based-template' => fn () => $usesYajra && $isAdminlte && $between(9, 11),
+            'old-hd-base-template' => fn () => $usesYajra && $isAdminlte && $between(5, 9),
         ];
 
-        foreach ($templates as $template => $condition) {
-            if ($condition($laravelVersion)) {
-                break;
-            }
-        }
-
-        return $template;
+        return $this->getResult($templates, '');
     }
 
-    protected function checkForAdminPanel(array $composerJson): string
+    protected function getResult(array $conditions, $default = null): ?string
     {
-        $adminPanels = [
-            'adminlte' => fn () => data_get($composerJson, 'require.jeroennoten/laravel-adminlte'),
-            'filament' => fn () => data_get($composerJson, 'require.filament/filament'),
-            'voyager' => fn () => data_get($composerJson, 'require.tcg/voyager'),
-            'no admin panel' => fn () => true,
-        ];
-
-        foreach ($adminPanels as $adminPanel => $condition) {
+        foreach ($conditions as $name => $condition) {
             if ($condition()) {
-                break;
+                return $name;
             }
         }
 
-        return $adminPanel;
+        return value($default);
     }
 }

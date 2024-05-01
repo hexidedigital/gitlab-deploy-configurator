@@ -2,7 +2,9 @@
 
 namespace App\Http\Telegram\Concerns;
 
+use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Domains\DeployConfigurator\Data\CodeInfoDetails;
+use App\Domains\DeployConfigurator\Data\TemplateGroup;
 use App\Domains\DeployConfigurator\DeployHelper;
 use App\Domains\GitLab\Data\ProjectData;
 use App\Domains\GitLab\ProjectValidator;
@@ -141,7 +143,7 @@ trait WithProjectInfoManage
 
     protected function isFrontendProjectsAllowed(): bool
     {
-        return false;
+        return true;
     }
 
     protected function selectProject(string|int|null $projectId): ProjectData
@@ -209,6 +211,7 @@ trait WithProjectInfoManage
 
         $codeInfo = collect()
             ->merge($this->parseTemplateForLaravel($project))
+            ->merge($this->parseTemplateForLaravel($project))
             ->merge($this->determineProjectFrontendBuilder($project))
             ->all();
 
@@ -235,6 +238,30 @@ trait WithProjectInfoManage
             return [
                 'repository_template' => 'not resolved',
                 'is_laravel' => false,
+            ];
+        }
+    }
+
+    protected function parseTemplateForFrontend(ProjectData $project): array
+    {
+        if ($project->hasEmptyRepository()) {
+            return [
+                'is_node' => false,
+            ];
+        }
+
+        try {
+            return $this->repositoryParser->parseTemplateForFrontend($project);
+        } catch (Gitlab\Exception\RuntimeException $e) {
+            if ($e->getCode() == 404) {
+                $this->reply('Project does not have package.json');
+            } else {
+                $this->reply('Failed to detect project template');
+            }
+
+            return [
+                'repository_template' => 'not resolved',
+                'is_node' => false,
             ];
         }
     }
@@ -266,13 +293,16 @@ trait WithProjectInfoManage
 
         if ($codeInfo->isLaravel) {
             $newOptions = [
-                'template_group' => 'backend',
-                'template_key' => 'laravel_3_0',
+                'template_group' => TemplateGroup::Backend,
+                'template_key' => (new CiCdTemplateRepository())->latestForGroup(TemplateGroup::Backend)->key,
             ];
         } else {
             $newOptions = [
-                'template_group' => 'frontend',
+                'template_group' => TemplateGroup::Frontend,
                 'template_key' => null,
+                'extra' => [
+                    'pm2_name' => str($project->name)->after('.')->beforeLast('.')->lower()->snake()->value(),
+                ],
             ];
         }
 

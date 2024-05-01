@@ -3,15 +3,21 @@
 namespace App\Domains\DeployConfigurator\Data;
 
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Support\Collection;
 
 readonly class CiCdOptions implements Arrayable
 {
+    public const PrepareStage = 'prepare';
+    public const BuildStage = 'build';
+    public const DeployStage = 'deploy';
+
     public function __construct(
         public string $template_group,
         public ?string $template_key,
         public array $enabled_stages,
         public ?string $node_version = null,
         public ?string $build_folder = null,
+        protected Collection $extra = new Collection(),
     ) {
     }
 
@@ -23,6 +29,7 @@ readonly class CiCdOptions implements Arrayable
             enabled_stages: data_get($array, 'enabled_stages'),
             node_version: data_get($array, 'node_version'),
             build_folder: data_get($array, 'build_folder'),
+            extra: new Collection(data_get($array, 'extra', [])),
         );
     }
 
@@ -40,6 +47,11 @@ readonly class CiCdOptions implements Arrayable
         return $this->enabled_stages[$stageName];
     }
 
+    public function extra(string $key)
+    {
+        return data_get($this->extra, $key);
+    }
+
     public function toArray(): array
     {
         return [
@@ -48,6 +60,7 @@ readonly class CiCdOptions implements Arrayable
             'enabled_stages' => $this->enabled_stages,
             'node_version' => $this->node_version,
             'build_folder' => $this->build_folder,
+            'extra' => $this->extra,
         ];
     }
 }

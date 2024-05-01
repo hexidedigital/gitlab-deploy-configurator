@@ -2,6 +2,8 @@
 
 namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
+use App\Domains\DeployConfigurator\Data\CiCdOptions;
+
 class SampleFormData
 {
     public function getSampleInput(): string
@@ -66,9 +68,9 @@ class SampleFormData
             'node_version' => '20',
             'build_folder' => 'dist',
             'enabled_stages' => [
-                'prepare' => true,
-                'build' => true,
-                'deploy' => true,
+                CiCdOptions::PrepareStage => true,
+                CiCdOptions::BuildStage => true,
+                CiCdOptions::DeployStage => true,
             ],
         ];
     }

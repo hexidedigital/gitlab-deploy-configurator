@@ -3,7 +3,9 @@
 namespace App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
 
 use App\Domains\DeployConfigurator\CiCdTemplateRepository;
+use App\Domains\DeployConfigurator\Data\CiCdOptions;
 use App\Domains\DeployConfigurator\Data\CodeInfoDetails;
+use App\Domains\DeployConfigurator\Data\TemplateGroup;
 use App\Domains\DeployConfigurator\Data\TemplateInfo;
 use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Filament\Forms;
@@ -34,14 +36,28 @@ class CiCdStep extends Forms\Components\Wizard\Step
                     ->label('Template types')
                     ->columnSpan(1)
                     ->live()
-                    ->options(collect($this->templateRepository->templateGroups())
-                        ->map(fn (array $group) => $group['name']))
+                    ->options(
+                        collect($this->templateRepository->getTemplateGroups())
+                            ->mapWithKeys(fn (TemplateGroup $group) => [
+                                $group->key => $group->nameAndIcon(),
+                            ])
+                    )
                     ->disableOptionWhen(function (string $value, Forms\Get $get) {
-                        if (CodeInfoDetails::makeFromArray($get('projectInfo.codeInfo') ?: [])->isLaravel) {
-                            return $value !== 'backend';
+                        if ($get('projectInfo.is_test')) {
+                            return false;
                         }
 
-                        return $value === 'backend';
+                        $codeInfoDetails = CodeInfoDetails::makeFromArray($get('projectInfo.codeInfo') ?: []);
+
+                        if ($codeInfoDetails->isLaravel) {
+                            return $value !== TemplateGroup::Backend;
+                        }
+
+                        if ($codeInfoDetails->isNode) {
+                            return $value !== TemplateGroup::Frontend;
+                        }
+
+                        return true;
                     })
                     ->helperText(
                         new HtmlString('See more details about <a href="https://gitlab.hexide-digital.com/packages/gitlab-templates" class="underline" target="_blank">GitLab Templates</a>')
@@ -60,6 +76,18 @@ class CiCdStep extends Forms\Components\Wizard\Step
                         ->map(fn (TemplateInfo $template) => $template->name)
                         ->all())
                     ->disableOptionWhen(fn (string $value, Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $value)?->isDisabled)
+                    ->afterStateUpdated(function (Forms\Get $get, Forms\Set $set, DeployConfigurator $livewire) {
+                        $templateInfo = $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
+                        $project = $livewire->gitlabService()->ignoreOnGitlabException()->findProject($get('projectInfo.selected_id'));
+
+                        if (!is_null($templateInfo?->preferredBuildFolder())) {
+                            $set('ci_cd_options.build_folder', $templateInfo->preferredBuildFolder());
+                        }
+
+                        if (!is_null($templateInfo?->preferredBuildFolder())) {
+                            $set('ci_cd_options.extra.pm2_name', str($project->name)->after('.')->beforeLast('.')->lower()->snake()->value());
+                        }
+                    })
                     ->required(),
 
                 $this->getCiCdStagesToggleFieldSet(),
@@ -74,6 +102,12 @@ class CiCdStep extends Forms\Components\Wizard\Step
                     ->visible(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->hasBuildFolder)
                     ->required(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->hasBuildFolder),
 
+                Forms\Components\TextInput::make('ci_cd_options.extra.pm2_name')
+                    ->label('App name for PM2')
+                    ->columnSpan(1)
+                    ->visible(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->usesPM2())
+                    ->required(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->usesPM2()),
+
                 $this->getStagesRepeater(),
             ]);
     }
@@ -86,19 +120,19 @@ class CiCdStep extends Forms\Components\Wizard\Step
             ->columnSpanFull()
             ->reactive()
             ->schema([
-                Forms\Components\Toggle::make('ci_cd_options.enabled_stages.prepare')
+                Forms\Components\Toggle::make('ci_cd_options.enabled_stages.' . CiCdOptions::PrepareStage)
                     ->label('Prepare (composer)')
                     ->onColor(Color::Purple)
                     ->onIcon('fab-php')
                     ->offIcon('fab-php')
                     ->helperText('Installs vendor dependencies'),
-                Forms\Components\Toggle::make('ci_cd_options.enabled_stages.build')
+                Forms\Components\Toggle::make('ci_cd_options.enabled_stages.' . CiCdOptions::BuildStage)
                     ->label('Build')
                     ->onColor(Color::Green)
                     ->onIcon('fab-node-js')
                     ->offIcon('fab-node-js')
                     ->helperText('Builds assets'),
-                Forms\Components\Toggle::make('ci_cd_options.enabled_stages.deploy')
+                Forms\Components\Toggle::make('ci_cd_options.enabled_stages.' . CiCdOptions::DeployStage)
                     ->label('Deploy')
                     ->onColor(Color::Orange)
                     ->onIcon('fab-gitlab')
@@ -119,12 +153,13 @@ class CiCdStep extends Forms\Components\Wizard\Step
             })
             ->columnSpan(1)
             ->options([
+                '22' => '22',
                 '20' => '20',
                 '18' => '18',
                 '16' => '16',
                 '14' => '14',
             ])
-            ->required(fn (Forms\Get $get) => $get('ci_cd_options.enabled_stages.build'));
+            ->required(fn (Forms\Get $get) => $get('ci_cd_options.enabled_stages.' . CiCdOptions::BuildStage));
     }
 
     protected function getStagesRepeater(): Forms\Components\Repeater
@@ -193,7 +228,7 @@ class CiCdStep extends Forms\Components\Wizard\Step
 
     protected function canSelectNodeVersion(Forms\Get $get, ?TemplateInfo $templateInfo): bool
     {
-        return ($get('ci_cd_options.enabled_stages.build') || $get('ci_cd_options.template_group') === 'frontend')
+        return ($get('ci_cd_options.enabled_stages.' . CiCdOptions::BuildStage) || $get('ci_cd_options.template_group') === TemplateGroup::Frontend)
             && $templateInfo?->canSelectNodeVersion;
     }
 

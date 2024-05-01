@@ -2,6 +2,7 @@
 
 namespace App\Filament\Dashboard\Pages;
 
+use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Domains\DeployConfigurator\Data\CiCdOptions;
 use App\Domains\DeployConfigurator\Data\ProjectDetails;
 use App\Domains\DeployConfigurator\DeployConfigBuilder;
@@ -176,11 +177,18 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                     $deployConfigBuilder->parseConfiguration($configurations);
 
                     $stages = $deployConfigBuilder->processStages();
+                    $ciCdOptions = CiCdOptions::makeFromArray($configurations['ci_cd_options']);
+                    $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($ciCdOptions->template_group, $ciCdOptions->template_key);
+                    $isBackend = $templateInfo->group->isBackend();
 
                     return [
                         Forms\Components\View::make('deployer.helpful-suggestion')
                             ->viewData([
                                 'stages' => $stages,
+                                'projectDetails' => ProjectDetails::makeFromArray($configurations['projectInfo']),
+                                'ciCdOptions' => $ciCdOptions,
+                                'isBackend' => $isBackend,
+                                'templateInfo' => $templateInfo,
                             ]),
                     ];
                 }),

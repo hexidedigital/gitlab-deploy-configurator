@@ -6,6 +6,7 @@ use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Domains\DeployConfigurator\Data\CiCdOptions;
 use App\Domains\DeployConfigurator\Data\ProjectDetails;
 use App\Domains\DeployConfigurator\Data\Stage\StageOptions;
+use App\Domains\DeployConfigurator\Data\TemplateGroup;
 use App\Domains\DeployConfigurator\Data\TemplateInfo;
 use App\Domains\DeployConfigurator\DeployConfigBuilder;
 use App\Domains\DeployConfigurator\DeployProjectBuilder;
@@ -442,7 +443,7 @@ class DeployWebhookHandler extends WebhookHandler
 
         $this->deleteKeyboard();
 
-        $this->chat->markdown("Great, project selected 🦊")->send();
+        $this->chat->markdown("Great, project selected 🦊")->removeReplyKeyboard()->send();
 
         $this->printCurrentInfoAboutProject();
 
@@ -453,12 +454,35 @@ class DeployWebhookHandler extends WebhookHandler
     {
         $project = $this->resolveProject($this->chatContext->getProjectId());
 
+        $projectDetails = ProjectDetails::makeFromArray($this->chatContext->context_data['projectInfo']);
+        $codeInfo = $projectDetails->codeInfo;
+
+        $ciCdOptions = CiCdOptions::makeFromArray(data_get($this->chatContext->context_data, 'ci_cd_options'));
+        $templateGroupName = (new CiCdTemplateRepository())->getTemplateGroups()[$ciCdOptions->template_group]?->nameAndIcon() ?: 'not resolved';
+
+        $code = "Template: *{$templateGroupName}*\n";
+        if ($codeInfo->isLaravel) {
+            $code .= collect([
+                'Laravel' => $codeInfo->frameworkVersion,
+                'Admin panel' => $codeInfo->adminPanel,
+                'Builder' => $codeInfo->frontendBuilder,
+            ])->filter()->map(fn ($value, $name) => "{$name}: *{$value}*")->implode(PHP_EOL);
+        } else {
+            $code .= collect([
+                'Framework' => $codeInfo->frameworkVersion,
+                'Builder' => $codeInfo->frontendBuilder,
+            ])->filter()->map(fn ($value, $name) => "{$name}: *{$value}*")->implode(PHP_EOL);
+        }
+
         $this->chat->markdown(
             <<<MD
                 Project details:
                 Name: *{$project->name}*
                 Id: *{$project->id}*
                 Access level: *{$project->level()->getLabel()}*
+
+                Code:
+                {$code}
                 MD
         )->send();
     }
@@ -597,16 +621,46 @@ class DeployWebhookHandler extends WebhookHandler
     protected function promptToConfigureCiCdOptions(): void
     {
         $this->printCurrentInfoAboutCiCdOptions();
+
+        $this->chatContext->pushToState([
+            'ci_cd_state' => [
+                'wait_for_pm2_input' => false,
+            ],
+        ]);
     }
 
     protected function processCiCdInput(Stringable $text): void
     {
-        // ...
+        $state = $this->chatContext->state['ci_cd_state'];
+
+        if ($state['wait_for_pm2_input']) {
+            if ($text->contains('Do not change')) {
+                $this->chat->message('Ok, PM2 name will not be changed.')->removeReplyKeyboard()->send();
+            } else {
+                $this->chat->markdown("Ok, PM2 name will be changed to *{$text}*")->removeReplyKeyboard()->send();
+
+                $newOptions = [
+                    'extra' => [
+                        'pm2_name' => $text,
+                    ],
+                ];
+
+                $this->chatContext->pushToData([
+                    'ci_cd_options' => array_merge($this->chatContext->context_data['ci_cd_options'], $newOptions),
+                ]);
+            }
+
+            $this->printCurrentInfoAboutCiCdOptions();
+
+            $state['wait_for_pm2_input'] = false;
+
+            $this->chatContext->pushToState(['ci_cd_state' => $state]);
+        }
     }
 
     protected function canSelectNodeVersion(CiCdOptions $ciCdOptions, ?TemplateInfo $templateInfo): bool
     {
-        return ($ciCdOptions->isStageEnabled('build') || $ciCdOptions->template_group === 'frontend')
+        return ($ciCdOptions->isStageEnabled(CiCdOptions::BuildStage) || $ciCdOptions->template_group === TemplateGroup::Frontend)
             && $templateInfo?->canSelectNodeVersion;
     }
 
@@ -616,14 +670,37 @@ class DeployWebhookHandler extends WebhookHandler
 
         $message = $this->makeMessageForCiCdOptions($ciCdOptions);
 
+        if ($withButtons) {
+            $buttons = [
+                $this->makeCallbackButton('Change 🔧', 'configureCiCdOptionsCallback', ['action' => 'show_main_menu_ci_cd']),
+            ];
+
+            if ($this->canConfirmCiCdOptions($ciCdOptions)) {
+                $buttons[] = $this->makeCallbackButton('Confirm ✅', 'configureCiCdOptionsCallback', ['action' => 'confirm_ci_cd']);
+            }
+        } else {
+            $buttons = [];
+        }
+
         return $this->chat->markdown($message)->keyboard(
-            Keyboard::make()->buttons(
-                $withButtons ? [
-                    $this->makeCallbackButton('Change 🔧', 'configureCiCdOptionsCallback', ['action' => 'show_main_menu_ci_cd']),
-                    $this->makeCallbackButton('Confirm ✅', 'configureCiCdOptionsCallback', ['action' => 'confirm_ci_cd']),
-                ] : []
-            )->chunk(2)
+            Keyboard::make()->buttons($buttons)->chunk(2)
         )->send();
+    }
+
+    protected function canConfirmCiCdOptions(CiCdOptions $ciCdOptions): bool
+    {
+        $repository = new CiCdTemplateRepository();
+        $templateInfo = $repository->getTemplateInfo($ciCdOptions->template_group, $ciCdOptions->template_key);
+
+        if (is_null($templateInfo)) {
+            return false;
+        }
+
+        if ($templateInfo->usesPM2() && empty($ciCdOptions->extra('pm2_name'))) {
+            return false;
+        }
+
+        return true;
     }
 
     protected function makeMessageForCiCdOptions(CiCdOptions $ciCdOptions): string
@@ -631,19 +708,19 @@ class DeployWebhookHandler extends WebhookHandler
         $repository = new CiCdTemplateRepository();
 
         $templateInfo = $repository->getTemplateInfo($ciCdOptions->template_group, $ciCdOptions->template_key);
-        $group = $repository->templateGroups()[$ciCdOptions->template_group];
+        $group = $repository->getTemplateGroups()[$ciCdOptions->template_group];
 
         $message = "Used CI/CD options:";
 
         if ($ciCdOptions->template_group) {
-            $message .= "\n\nTemplate\n- type: *{$group['name']}* {$group['icon']}";
+            $message .= "\n\nTemplate\n- type: *{$group->nameAndIcon()}*";
 
             if ($ciCdOptions->template_key && $templateInfo) {
                 $message .= "\n- version: *{$templateInfo->name}*";
             }
         }
 
-        if ($templateInfo->allowToggleStages) {
+        if ($templateInfo?->allowToggleStages) {
             $message .= "\n\nStages: ";
             foreach ($ciCdOptions->enabled_stages as $stageName => $status) {
                 $message .= "\n- *{$stageName}* - " . ($status ? 'enabled 🟢' : 'disabled 🔴');
@@ -651,7 +728,17 @@ class DeployWebhookHandler extends WebhookHandler
         }
 
         if ($this->canSelectNodeVersion($ciCdOptions, $templateInfo)) {
+            $message .= "\n\nBuild stage";
             $message .= "\nNode.js: *{$ciCdOptions->node_version}*";
+            if ($templateInfo->group->isFrontend()) {
+                $message .= "\n- using: *{$templateInfo->preferredBuildType()}*";
+
+                if ($templateInfo->usesPM2()) {
+                    $message .= "\n- PM2 name: *{$ciCdOptions->extra('pm2_name')}*";
+                } else {
+                    $message .= "\n- build folder: *{$ciCdOptions->build_folder}*";
+                }
+            }
         }
 
         return $message;
@@ -670,7 +757,7 @@ class DeployWebhookHandler extends WebhookHandler
                 $this->makeCallbackButton('Template 📦', 'configureCiCdOptionsCallback', ['action' => 'select_template_group', 'current' => $ciCdOptions->template_group]),
             ];
 
-            if ($templateInfo->allowToggleStages) {
+            if ($templateInfo?->allowToggleStages) {
                 $buttons[] = $this->makeCallbackButton('Stages 🧩', 'configureCiCdOptionsCallback', [
                     'action' => 'change_stages',
                 ]);
@@ -683,9 +770,18 @@ class DeployWebhookHandler extends WebhookHandler
                 ]);
             }
 
-            $buttons[] = $this->makeCallbackButton('Confirm ✅', 'configureCiCdOptionsCallback', [
-                'action' => 'confirm_ci_cd',
-            ]);
+            if ($templateInfo?->usesPM2()) {
+                $buttons[] = $this->makeCallbackButton('PM2 name 🚀', 'configureCiCdOptionsCallback', [
+                    'action' => 'change_pm2_name',
+                    'current' => $ciCdOptions->extra('pm2_name'),
+                ]);
+            }
+
+            if ($this->canConfirmCiCdOptions($ciCdOptions)) {
+                $buttons[] = $this->makeCallbackButton('Confirm ✅', 'configureCiCdOptionsCallback', [
+                    'action' => 'confirm_ci_cd',
+                ]);
+            }
 
             return $keyboard->buttons($buttons)->chunk(2);
         };
@@ -741,15 +837,26 @@ class DeployWebhookHandler extends WebhookHandler
             },
             'back_to_main_menu_ci_cd' => function () {
                 $this->renderMainCiCdMenu($this->messageId)->send();
+                $this->chatContext->pushToState([
+                    'ci_cd_state' => [
+                        'wait_for_pm2_input' => false,
+                        'wait_for_build_folder_input' => false,
+                    ],
+                ]);
             },
             // / ----------------------
-            'select_template_group' => function () use ($backButton) {
-                $this->chat->edit($this->messageId)->markdown('Select template for your project: ')->keyboard(function (Keyboard $keyboard) use ($backButton) {
-                    $buttons = collect((new CiCdTemplateRepository())->templateGroups())
-                        ->map(function (array $group) {
-                            return $this->makeCallbackButton("{$group['name']} {$group['icon']}", 'configureCiCdOptionsCallback', [
+            'select_template_group' => function () use ($callbackButton, $backButton) {
+                $currentGroup = $callbackButton->payload->get('current');
+
+                $this->chat->edit($this->messageId)->markdown('Select template for your project: ')->keyboard(function (Keyboard $keyboard) use ($currentGroup, $backButton) {
+                    $buttons = collect((new CiCdTemplateRepository())->getTemplateGroups())
+                        ->when(!$this->user->isRoot() && !empty($currentGroup), function (Collection $groups) use ($currentGroup) {
+                            return $groups->only($currentGroup);
+                        })
+                        ->map(function (TemplateGroup $group) {
+                            return $this->makeCallbackButton($group->nameAndIcon(), 'configureCiCdOptionsCallback', [
                                 'action' => 'select_template_version',
-                                'group' => $group['key'],
+                                'group' => $group->key,
                             ]);
                         })
                         ->values();
@@ -765,7 +872,7 @@ class DeployWebhookHandler extends WebhookHandler
             },
             'select_template_version' => function () use ($callbackButton) {
                 $selectGroup = $callbackButton->payload->get('group');
-                if (!$this->isFrontendProjectsAllowed() && $selectGroup == 'frontend') {
+                if (!$this->isFrontendProjectsAllowed() && $selectGroup == TemplateGroup::Frontend) {
                     $this->reply('Unfortunately, frontend templates are not supported yet from telegram bot.');
 
                     return;
@@ -827,7 +934,7 @@ class DeployWebhookHandler extends WebhookHandler
                 /** @var string|null $stageName */
                 $stageName = $callbackButton->payload->get('stage_name');
                 if ($stageName) {
-                    if ($stageName == 'deploy') {
+                    if ($stageName == CiCdOptions::DeployStage) {
                         $this->reply('You can not disable deploy stage)');
                     } else {
                         $enabledStages[$stageName] = $callbackButton->payload->get('new_status');
@@ -846,7 +953,7 @@ class DeployWebhookHandler extends WebhookHandler
                     $buttons = collect($enabledStages)
                         ->map(function ($status, $stageName) {
                             $icon = $status ? '🟢 > 🔴' : '🔴 > 🟢';
-                            if ($stageName == 'deploy') {
+                            if ($stageName == CiCdOptions::DeployStage) {
                                 $icon = '⚪';
                             }
 
@@ -868,9 +975,31 @@ class DeployWebhookHandler extends WebhookHandler
                 $this->refreshCiCdMessage();
             },
             // / ----------------------
+            'change_pm2_name' => function () use ($callbackButton) {
+                $this->chatContext->pushToState([
+                    'ci_cd_state' => [
+                        'wait_for_pm2_input' => true,
+                    ],
+                ]);
+
+                $this->chat->deleteMessage($this->messageId)->send();
+
+                $this->chat->message('Send me new PM2 name:')->replyKeyboard(function (ReplyKeyboard $keyboard) use ($callbackButton) {
+                    if ($callbackButton->payload['current']) {
+                        $keyboard->button('Do not change');
+                    }
+
+                    $project = $this->resolveProject($this->chatContext->getProjectId());
+
+                    $suggestName = str($project->name)->after('.')->beforeLast('.')->lower()->snake()->value();
+
+                    return $keyboard->button($suggestName)->chunk(2)->resize()->oneTime()->inputPlaceholder('Choose option...');
+                })->send();
+            },
+            // / ----------------------
             'change_node' => function () use ($backButton) {
                 $this->chat->edit($this->callbackQuery->message()->id())->message('Change node version to:')->keyboard(function (Keyboard $keyboard) use ($backButton) {
-                    $buttons = collect(['20', '18', '16', '14'])
+                    $buttons = collect(['22', '20', '18', '16', '14'])
                         ->map(fn ($v) => $this->makeCallbackButton($v, 'configureCiCdOptionsCallback', [
                             'action' => 'save_node_version',
                             'v' => $v,
@@ -1014,68 +1143,78 @@ class DeployWebhookHandler extends WebhookHandler
 
             $this->loading();
 
+            $templateInfo = ($group = data_get($this->chatContext->context_data, 'ci_cd_options.template_group'))
+                ? (new CiCdTemplateRepository())->getTemplateInfo($group, data_get($this->chatContext->context_data, 'ci_cd_options.template_key'))
+                : null;
+
+            $isBackend = (is_null($templateInfo) || $templateInfo->group->isBackend());
+
             $homeFolder = str($ssh->exec('echo $HOME'))->trim()->rtrim('/')->value();
-            /** @var Collection $paths */
-            $paths = str($ssh->exec('whereis php php8.2 composer'))
-                ->explode(PHP_EOL)
-                ->mapWithKeys(function ($pathInfo, $line) {
-                    $binType = Str::of($pathInfo)->before(':')->trim()->value();
-                    $all = Str::of($pathInfo)->after("{$binType}:")->ltrim()->explode(' ');
-                    $binPath = $all->first();
 
-                    if (!$binType || !$binPath) {
-                        return [$line => null];
-                    }
+            if ($isBackend) {
+                /** @var Collection $paths */
+                $paths = str($ssh->exec('whereis php php8.2 composer'))
+                    ->explode(PHP_EOL)
+                    ->mapWithKeys(function ($pathInfo, $line) {
+                        $binType = Str::of($pathInfo)->before(':')->trim()->value();
+                        $all = Str::of($pathInfo)->after("{$binType}:")->ltrim()->explode(' ');
+                        $binPath = $all->first();
 
-                    if (Str::startsWith($binType, 'php')) {
-                        $all = $all->reject(fn ($path) => Str::contains($path, ['-', '.gz', 'man']));
-                    }
+                        if (!$binType || !$binPath) {
+                            return [$line => null];
+                        }
 
-                    return [
-                        $binType => [
-                            'bin' => $binPath,
-                            'all' => $all->map(fn ($path) => "{$path}")->implode('; '),
-                        ],
-                    ];
-                })
-                ->filter();
+                        if (Str::startsWith($binType, 'php')) {
+                            $all = $all->reject(fn ($path) => Str::contains($path, ['-', '.gz', 'man']));
+                        }
 
-            $phpV = '-';
-            $composerV = '-';
-            $composerVOutput = '-';
+                        return [
+                            $binType => [
+                                'bin' => $binPath,
+                                'all' => $all->map(fn ($path) => "{$path}")->implode('; '),
+                            ],
+                        ];
+                    })
+                    ->filter();
 
-            $phpInfo = $paths->get('php8.2', $paths->get('php'));
-            if (empty($phpInfo['bin'])) {
-                $phpVOutput = 'PHP not found';
-            } else {
-                $binPhp = $phpInfo['bin'];
-                $phpVOutput = $ssh->exec($binPhp . ' -v');
+                $phpV = '-';
+                $composerV = '-';
+                $composerVOutput = '-';
 
-                $phpV = preg_match('/PHP (\d+\.\d+\.\d+)/', $phpVOutput, $matches) ? $matches[1] : '-';
-
-                if ($binComposer = $paths->get('composer')['bin'] ?? null) {
-                    $composerVOutput = $ssh->exec("{$binPhp} {$binComposer} -V");
-
-                    $composerV = preg_match('/Composer (?:version )?(\d+\.\d+\.\d+)/', $composerVOutput, $matches) ? $matches[1] : '-';
+                $phpInfo = $paths->get('php8.2', $paths->get('php'));
+                if (empty($phpInfo['bin'])) {
+                    $phpVOutput = 'PHP not found';
                 } else {
-                    $composerVOutput = 'Composer not found';
+                    $binPhp = $phpInfo['bin'];
+                    $phpVOutput = $ssh->exec($binPhp . ' -v');
+
+                    $phpV = preg_match('/PHP (\d+\.\d+\.\d+)/', $phpVOutput, $matches) ? $matches[1] : '-';
+
+                    if ($binComposer = $paths->get('composer')['bin'] ?? null) {
+                        $composerVOutput = $ssh->exec("{$binPhp} {$binComposer} -V");
+
+                        $composerV = preg_match('/Composer (?:version )?(\d+\.\d+\.\d+)/', $composerVOutput, $matches) ? $matches[1] : '-';
+                    } else {
+                        $composerVOutput = 'Composer not found';
+                    }
                 }
             }
-
             $info = collect([
                 "home folder: `{$homeFolder}`",
-                "--------",
-                "*bin paths*",
-                ...$paths->map(fn ($path, $type) => "{$type}: `{$path['bin']}`"),
-                "--------",
-                "all php bins: `{$phpInfo['all']}`",
-                "--------",
-                "*php: ({$phpV})*",
-                "```\n{$phpVOutput}```",
-                "--------",
-                "*composer: ({$composerV})*",
-                "```\n{$composerVOutput}```",
-                "--------",
+                ...($isBackend ? [
+                    "--------",
+                    "*bin paths*",
+                    ...$paths->map(fn ($path, $type) => "{$type}: `{$path['bin']}`"),
+                    "--------",
+                    "all php bins: `{$phpInfo['all']}`",
+                    "--------",
+                    "*php: ({$phpV})*",
+                    "```\n{$phpVOutput}```",
+                    "--------",
+                    "*composer: ({$composerV})*",
+                    "```\n{$composerVOutput}```",
+                    "--------",
+                ] : []),
             ])->implode("\n");
 
             $parseState['server_connection_result'] = $info;
@@ -1091,13 +1230,21 @@ class DeployWebhookHandler extends WebhookHandler
             $newOptions = [
                 'base-dir-pattern' => $baseDir . $testFolder,
                 'home-folder' => $homeFolder . $testFolder,
-                'bin-php' => $phpInfo['bin'],
-                'bin-composer' => "{$phpInfo['bin']} {$paths->get('composer')['bin']}",
+                ...($isBackend ? [
+                    'bin-php' => $phpInfo['bin'],
+                    'bin-composer' => "{$phpInfo['bin']} {$paths->get('composer')['bin']}",
+                ] : [
+                    'bin-php' => null,
+                    'bin-composer' => null,
+                ]),
             ];
             $stage['options'] = array_merge($stage['options'], $newOptions);
 
             $message = "🧰 Options for deployment:\n";
             foreach ($newOptions as $name => $value) {
+                if (!$isBackend && in_array($name, ['bin-php', 'bin-composer'])) {
+                    continue;
+                }
                 $title = str($name)->kebab()->replace(['-', '_'], ' ')->ucfirst()->value();
                 $message .= "\n- *{$title}*: `{$value}`";
             }
@@ -1243,6 +1390,12 @@ class DeployWebhookHandler extends WebhookHandler
 
     protected function makeMessageForDeploymentSettings(StageOptions $options): string
     {
+        $templateInfo = ($group = data_get($this->chatContext->context_data, 'ci_cd_options.template_group'))
+            ? (new CiCdTemplateRepository())->getTemplateInfo($group, data_get($this->chatContext->context_data, 'ci_cd_options.template_key'))
+            : null;
+
+        $isBackend = (is_null($templateInfo) || $templateInfo->group->isBackend());
+
         $newOptions = [
             'base-dir-pattern' => $options->baseDirPattern,
             'home-folder' => $options->homeFolder,
@@ -1252,6 +1405,10 @@ class DeployWebhookHandler extends WebhookHandler
 
         $message = "🧰 Options for deployment:\n";
         foreach ($newOptions as $name => $value) {
+            if (!$isBackend && in_array($name, ['bin-php', 'bin-composer'])) {
+                continue;
+            }
+
             $title = str($name)->kebab()->replace(['-', '_'], ' ')->ucfirst()->value();
             $message .= "\n- *{$title}*: `{$value}`";
         }
@@ -1369,12 +1526,23 @@ class DeployWebhookHandler extends WebhookHandler
             // / ----------------------
             'server_paths' => function () use ($backButton) {
                 $this->chat->edit($this->messageId)->markdown('Change server paths:')->keyboard(function (Keyboard $keyboard) use ($backButton) {
+                    $templateInfo = ($group = data_get($this->chatContext->context_data, 'ci_cd_options.template_group'))
+                        ? (new CiCdTemplateRepository())->getTemplateInfo($group, data_get($this->chatContext->context_data, 'ci_cd_options.template_key'))
+                        : null;
+
+                    $isBackend = (is_null($templateInfo) || $templateInfo->group->isBackend());
+
                     $buttons = [
-                        $this->makeCallbackButton('Home folder', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'base-dir-pattern']),
-                        $this->makeCallbackButton('Base dir', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'home-folder']),
-                        $this->makeCallbackButton('php', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'bin-php']),
-                        $this->makeCallbackButton('composer', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'bin-composer']),
+                        $this->makeCallbackButton('Base dir', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'base-dir-pattern']),
+                        $this->makeCallbackButton('Home folder', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'home-folder']),
                     ];
+
+                    if ($isBackend) {
+                        $buttons = array_merge($buttons, [
+                            $this->makeCallbackButton('php', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'bin-php']),
+                            $this->makeCallbackButton('composer', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'bin-composer']),
+                        ]);
+                    }
 
                     $buttons[] = $backButton;
 
@@ -1385,8 +1553,8 @@ class DeployWebhookHandler extends WebhookHandler
             },
             'edit_path' => function () use ($callbackButton) {
                 $message = match ($callbackButton->payload->get('property')) {
-                    'base-dir-pattern' => 'Change home folder path',
-                    'home-folder' => 'Change base dir path',
+                    'base-dir-pattern' => 'Change base dir path',
+                    'home-folder' => 'Change home folder path',
                     'bin-php' => 'Change php bin path',
                     'bin-composer' => 'Change composer bin path',
                     default => throw new Halt(),

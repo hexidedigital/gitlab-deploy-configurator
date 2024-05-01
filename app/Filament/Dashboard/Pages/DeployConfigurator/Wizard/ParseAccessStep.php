@@ -2,6 +2,7 @@
 
 namespace App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
 
+use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Filament\Contacts\HasParserInfo;
 use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Filament\Forms;
@@ -37,6 +38,11 @@ class ParseAccessStep extends Forms\Components\Wizard\Step
                 DeployConfigurator\ParseAccessSchema::make()
                     ->parseConfigurations(function (DeployConfigurator $livewire) {
                         return $livewire->form->getRawState();
+                    })
+                    ->showMoreConfigurationSection(function (Forms\Get $get) {
+                        $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
+
+                        return is_null($templateInfo) || $templateInfo->group->isBackend();
                     }),
             ]);
     }

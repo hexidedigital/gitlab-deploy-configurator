@@ -2,6 +2,7 @@
 
 namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
+use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Domains\DeployConfigurator\DeployConfigBuilder;
 use App\Filament\Actions\Forms\Components\CopyAction;
 use App\Filament\Contacts\HasParserInfo;
@@ -176,7 +177,17 @@ class ParseAccessSchema extends Forms\Components\Grid
         return Forms\Components\Section::make(str('Deploy configuration `.yml` for all stages')->markdown()->toHtmlString())
             ->description('If you want, you can download the configuration file for all stages at once')
             // has at least one parsed stage
-            ->visible(fn (HasParserInfo $livewire) => $livewire->hasParsedStage())
+            ->visible(function (HasParserInfo $livewire, Forms\Get $get) {
+                $defaultState = $livewire->hasParsedStage();
+
+                if (is_null($get('ci_cd_options.template_group'))) {
+                    return $defaultState;
+                }
+
+                $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
+
+                return $defaultState && (is_null($templateInfo) || $templateInfo->group->isBackend());
+            })
             ->icon('heroicon-o-document-text')
             ->iconColor(Color::Orange)
             ->collapsed()
@@ -304,7 +315,17 @@ class ParseAccessSchema extends Forms\Components\Grid
     {
         return Forms\Components\Section::make(fn (Forms\Get $get) => str("Generated `deploy.php` file for **{$get('name')}** stage")->markdown()->toHtmlString())
             ->description('You can download the generated `deploy.php` file and use it later')
-            ->visible(fn (Forms\Get $get, HasParserInfo $livewire) => $livewire->getParseStatusForStage($get('name')) && $this->sectionBasedOnDataCanBeVisible($get))
+            ->visible(function (Forms\Get $get, HasParserInfo $livewire) {
+                $defaultState = $livewire->getParseStatusForStage($get('name')) && $this->sectionBasedOnDataCanBeVisible($get);
+
+                if (is_null($get('../../ci_cd_options.template_group'))) {
+                    return $defaultState;
+                }
+
+                $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($get('../../ci_cd_options.template_group'), $get('../../ci_cd_options.template_key'));
+
+                return $defaultState && (is_null($templateInfo) || $templateInfo->group->isBackend());
+            })
             ->icon('heroicon-o-document-text')
             ->iconColor(Color::Fuchsia)
             ->collapsed()
@@ -442,23 +463,33 @@ class ParseAccessSchema extends Forms\Components\Grid
                     Forms\Components\Fieldset::make('Server details')
                         ->columnSpanFull()
                         ->columns()
-                        ->schema([
-                            Forms\Components\Placeholder::make('server_connection_result')
-                                ->label('Server info')
-                                ->columnSpan(1)
-                                ->content(fn (Forms\Get $get) => str($get('server_connection_result') ?: 'not fetched yet')->toHtmlString()),
+                        ->schema(function (Forms\Get $get) {
+                            $templateInfo = ($group = $get('../../ci_cd_options.template_group'))
+                                ? (new CiCdTemplateRepository())->getTemplateInfo($group, $get('../../ci_cd_options.template_key'))
+                                : null;
 
-                            Forms\Components\Grid::make(1)->columnSpan(1)->schema([
-                                Forms\Components\TextInput::make('options.base_dir_pattern')
-                                    ->required(),
-                                Forms\Components\TextInput::make('options.home_folder')
-                                    ->required(),
-                                Forms\Components\TextInput::make('options.bin_php')
-                                    ->required(),
-                                Forms\Components\TextInput::make('options.bin_composer')
-                                    ->required(),
-                            ]),
-                        ]),
+                            $isBackend = (is_null($templateInfo) || $templateInfo->group->isBackend());
+
+                            return [
+                                Forms\Components\Placeholder::make('server_connection_result')
+                                    ->label('Server info')
+                                    ->columnSpan(1)
+                                    ->content(fn (Forms\Get $get) => str($get('server_connection_result') ?: 'not fetched yet')->toHtmlString()),
+
+                                Forms\Components\Grid::make(1)->columnSpan(1)->schema([
+                                    Forms\Components\TextInput::make('options.base_dir_pattern')
+                                        ->required(),
+                                    Forms\Components\TextInput::make('options.home_folder')
+                                        ->required(),
+                                    Forms\Components\TextInput::make('options.bin_php')
+                                        ->visible($isBackend)
+                                        ->required($isBackend),
+                                    Forms\Components\TextInput::make('options.bin_composer')
+                                        ->visible($isBackend)
+                                        ->required($isBackend),
+                                ]),
+                            ];
+                        }),
                 ];
             });
     }
@@ -550,67 +581,77 @@ class ParseAccessSchema extends Forms\Components\Grid
 
                 $ssh->enableQuietMode();
 
+                $templateInfo = ($group = $get('../../ci_cd_options.template_group'))
+                    ? (new CiCdTemplateRepository())->getTemplateInfo($group, $get('../../ci_cd_options.template_key'))
+                    : null;
+
+                $isBackend = (is_null($templateInfo) || $templateInfo->group->isBackend());
+
                 $homeFolder = str($ssh->exec('echo $HOME'))->trim()->rtrim('/')->value();
-                /** @var Collection $paths */
-                $paths = str($ssh->exec('whereis php php8.2 composer'))
-                    ->explode(PHP_EOL)
-                    ->mapWithKeys(function ($pathInfo, $line) {
-                        $binType = Str::of($pathInfo)->before(':')->trim()->value();
-                        $all = Str::of($pathInfo)->after("{$binType}:")->ltrim()->explode(' ');
-                        $binPath = $all->first();
 
-                        if (!$binType || !$binPath) {
-                            return [$line => null];
-                        }
+                if ($isBackend) {
+                    /** @var Collection $paths */
+                    $paths = str($ssh->exec('whereis php php8.2 composer'))
+                        ->explode(PHP_EOL)
+                        ->mapWithKeys(function ($pathInfo, $line) {
+                            $binType = Str::of($pathInfo)->before(':')->trim()->value();
+                            $all = Str::of($pathInfo)->after("{$binType}:")->ltrim()->explode(' ');
+                            $binPath = $all->first();
 
-                        if (Str::startsWith($binType, 'php')) {
-                            $all = $all->reject(fn ($path) => Str::contains($path, ['-', '.gz', 'man']));
-                        }
+                            if (!$binType || !$binPath) {
+                                return [$line => null];
+                            }
 
-                        return [
-                            $binType => [
-                                'bin' => $binPath,
-                                'all' => $all->map(fn ($path) => "{$path}")->implode('; '),
-                            ],
-                        ];
-                    })
-                    ->filter();
+                            if (Str::startsWith($binType, 'php')) {
+                                $all = $all->reject(fn ($path) => Str::contains($path, ['-', '.gz', 'man']));
+                            }
 
-                $phpV = '-';
-                $composerV = '-';
+                            return [
+                                $binType => [
+                                    'bin' => $binPath,
+                                    'all' => $all->map(fn ($path) => "{$path}")->implode('; '),
+                                ],
+                            ];
+                        })
+                        ->filter();
 
-                $phpInfo = $paths->get('php8.2', $paths->get('php'));
-                if (empty($phpInfo['bin'])) {
-                    $phpVOutput = 'PHP not found';
-                } else {
-                    $binPhp = $phpInfo['bin'];
-                    $phpVOutput = $ssh->exec($binPhp . ' -v');
+                    $phpV = '-';
+                    $composerV = '-';
 
-                    $phpV = preg_match('/PHP (\d+\.\d+\.\d+)/', $phpVOutput, $matches) ? $matches[1] : '-';
-
-                    if ($binComposer = $paths->get('composer')['bin'] ?? null) {
-                        $composerVOutput = $ssh->exec("{$binPhp} {$binComposer} -V");
-
-                        $composerV = preg_match('/Composer (?:version )?(\d+\.\d+\.\d+)/', $composerVOutput, $matches) ? $matches[1] : '-';
+                    $phpInfo = $paths->get('php8.2', $paths->get('php'));
+                    if (empty($phpInfo['bin'])) {
+                        $phpVOutput = 'PHP not found';
                     } else {
-                        $composerVOutput = 'Composer not found';
+                        $binPhp = $phpInfo['bin'];
+                        $phpVOutput = $ssh->exec($binPhp . ' -v');
+
+                        $phpV = preg_match('/PHP (\d+\.\d+\.\d+)/', $phpVOutput, $matches) ? $matches[1] : '-';
+
+                        if ($binComposer = $paths->get('composer')['bin'] ?? null) {
+                            $composerVOutput = $ssh->exec("{$binPhp} {$binComposer} -V");
+
+                            $composerV = preg_match('/Composer (?:version )?(\d+\.\d+\.\d+)/', $composerVOutput, $matches) ? $matches[1] : '-';
+                        } else {
+                            $composerVOutput = 'Composer not found';
+                        }
                     }
                 }
-
                 $info = collect([
                     "home folder: {$homeFolder}",
-                    "<hr>",
-                    "bin paths:",
-                    ...$paths->map(fn ($path, $type) => "{$type}: {$path['bin']}"),
-                    "<hr>",
-                    "all php bins: {$phpInfo['all']}",
-                    "<hr>",
-                    "php: ({$phpV})",
-                    $phpVOutput,
-                    "<hr>",
-                    "composer: ({$composerV})",
-                    $composerVOutput,
-                    "<hr>",
+                    ...($isBackend ? [
+                        "<hr>",
+                        "bin paths:",
+                        ...$paths->map(fn ($path, $type) => "{$type}: {$path['bin']}"),
+                        "<hr>",
+                        "all php bins: {$phpInfo['all']}",
+                        "<hr>",
+                        "php: ({$phpV})",
+                        $phpVOutput,
+                        "<hr>",
+                        "composer: ({$composerV})",
+                        $composerVOutput,
+                        "<hr>",
+                    ] : []),
                 ])->implode('<br>');
 
                 $set('server_connection_result', $info);
@@ -625,8 +666,14 @@ class ParseAccessSchema extends Forms\Components\Grid
                     : "{$homeFolder}/{$domain}/www";
                 $set('options.base_dir_pattern', $baseDir . $testFolder);
                 $set('options.home_folder', $homeFolder . $testFolder);
-                $set('options.bin_php', $phpInfo['bin']);
-                $set('options.bin_composer', "{$phpInfo['bin']} {$paths->get('composer')['bin']}");
+
+                if ($isBackend) {
+                    $set('options.bin_php', $phpInfo['bin']);
+                    $set('options.bin_composer', "{$phpInfo['bin']} {$paths->get('composer')['bin']}");
+                } else {
+                    $set('options.bin_php', null);
+                    $set('options.bin_composer', null);
+                }
 
                 Notification::make()->title('Server info fetched')->success()->send();
             });

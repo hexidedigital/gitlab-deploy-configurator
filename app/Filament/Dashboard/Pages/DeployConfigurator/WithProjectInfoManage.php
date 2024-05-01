@@ -2,7 +2,9 @@
 
 namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
+use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Domains\DeployConfigurator\Data\CodeInfoDetails;
+use App\Domains\DeployConfigurator\Data\TemplateGroup;
 use App\Domains\DeployConfigurator\DeployHelper;
 use App\Domains\GitLab\Data\ProjectData;
 use App\Domains\GitLab\ProjectValidator;
@@ -161,6 +163,29 @@ trait WithProjectInfoManage
             ];
         }
     }
+    protected function parseTemplateForFrontend(ProjectData $project): array
+    {
+        if ($project->hasEmptyRepository()) {
+            return [
+                'is_node' => false,
+            ];
+        }
+
+        try {
+            return $this->repositoryParser->parseTemplateForFrontend($project);
+        } catch (Gitlab\Exception\RuntimeException $e) {
+            if ($e->getCode() == 404) {
+                Notification::make()->title('Project does not have package.json')->warning()->send();
+            } else {
+                Notification::make()->title('Failed to detect project template')->danger()->send();
+            }
+
+            return [
+                'repository_template' => 'not resolved',
+                'is_node' => false,
+            ];
+        }
+    }
 
     protected function determineProjectFrontendBuilder(ProjectData $project): array
     {
@@ -187,6 +212,7 @@ trait WithProjectInfoManage
 
         $codeInfo = collect()
             ->merge($this->parseTemplateForLaravel($project))
+            ->merge($this->parseTemplateForFrontend($project))
             ->merge($this->determineProjectFrontendBuilder($project))
             ->all();
 
@@ -200,15 +226,20 @@ trait WithProjectInfoManage
         }
 
         if ($codeInfo->isLaravel) {
-            $this->fill(Arr::dot([
-                'template_group' => 'backend',
-                'template_key' => 'laravel_3_0',
-            ], 'data.ci_cd_options.'));
+            $newOptions = [
+                'template_group' => TemplateGroup::Backend,
+                'template_key' => (new CiCdTemplateRepository())->latestForGroup(TemplateGroup::Backend)->key,
+            ];
         } else {
-            $this->fill(Arr::dot([
-                'template_group' => 'frontend',
+            $newOptions = [
+                'template_group' => TemplateGroup::Frontend,
                 'template_key' => null,
-            ], 'data.ci_cd_options.'));
+                'extra' => [
+                    'pm2_name' => str($project->name)->after('.')->beforeLast('.')->lower()->snake()->value(),
+                ],
+            ];
         }
+
+        $this->fill(Arr::dot($newOptions, 'data.ci_cd_options.'));
     }
 }

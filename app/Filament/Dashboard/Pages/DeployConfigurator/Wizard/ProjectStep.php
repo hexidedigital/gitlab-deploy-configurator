@@ -2,6 +2,8 @@
 
 namespace App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
 
+use App\Domains\DeployConfigurator\CiCdTemplateRepository;
+use App\Domains\DeployConfigurator\Data\CodeInfoDetails;
 use App\Domains\DeployConfigurator\Jobs\ConfigureRepositoryJob;
 use App\Domains\GitLab\Data\ProjectData;
 use App\Domains\GitLab\RepositoryParser;
@@ -156,26 +158,66 @@ class ProjectStep extends Forms\Components\Wizard\Step
                 ]),
             ]),
 
-            Forms\Components\Fieldset::make('Code')->columns(1)->columnSpan(1)->visible(fn (Forms\Get $get) => $get('projectInfo.selected_id'))->schema([
-                Forms\Components\Placeholder::make('placeholder.codeInfo.repository_template_group')
-                    ->label('Detected project template')
-                    ->content(fn (Forms\Get $get) => RepositoryParser::getRepositoryTemplateName($get('projectInfo.codeInfo.repository_template'))),
+            Forms\Components\Fieldset::make('Code')->columns(1)->columnSpan(1)
+                ->visible(function (Forms\Get $get) {
+                    $codeInfoDetails = CodeInfoDetails::makeFromArray($get('projectInfo.codeInfo') ?: []);
 
-                Forms\Components\Placeholder::make('placeholder.codeInfo.laravel_version')
-                    ->label('Detected laravel')
-                    ->visible(fn (Forms\Get $get) => $get('projectInfo.codeInfo.laravel_version'))
-                    ->content(fn (Forms\Get $get) => $get('projectInfo.codeInfo.laravel_version')),
+                    return $get('projectInfo.selected_id') && ($codeInfoDetails->isLaravel || $codeInfoDetails->isNode);
+                })
+                ->schema(function (Forms\Get $get) {
+                    $codeInfoDetails = CodeInfoDetails::makeFromArray($get('projectInfo.codeInfo') ?: []);
 
-                Forms\Components\Placeholder::make('placeholder.codeInfo.admin_panel')
-                    ->label('Detected Admin panel')
-                    ->visible(fn (Forms\Get $get) => $get('projectInfo.codeInfo.admin_panel'))
-                    ->content(fn (Forms\Get $get) => $get('projectInfo.codeInfo.admin_panel')),
+                    if ($codeInfoDetails->isLaravel) {
+                        return [
+                            Forms\Components\Placeholder::make('placeholder.codeInfo.repository_type')
+                                ->label('Project type')
+                                ->content(fn (Forms\Get $get) => (new CiCdTemplateRepository())->getTemplateGroups()[$get('ci_cd_options.template_group')]?->nameAndIcon() ?: 'not resolved'),
 
-                Forms\Components\Placeholder::make('placeholder.codeInfo.frontend_builder')
-                    ->label('Frontend builder')
-                    ->visible(fn (Forms\Get $get) => $get('projectInfo.codeInfo.frontend_builder'))
-                    ->content(fn (Forms\Get $get) => $get('projectInfo.codeInfo.frontend_builder')),
-            ]),
+                            Forms\Components\Placeholder::make('placeholder.codeInfo.repository_template_group')
+                                ->label('Detected project template')
+                                ->content(fn (Forms\Get $get) => RepositoryParser::getRepositoryTemplateName($get('projectInfo.codeInfo.repository_template'))),
+
+                            Forms\Components\Placeholder::make('placeholder.codeInfo.framework_version')
+                                ->label('Detected laravel')
+                                ->visible(fn (Forms\Get $get) => $get('projectInfo.codeInfo.framework_version'))
+                                ->content(fn (Forms\Get $get) => $get('projectInfo.codeInfo.framework_version')),
+
+                            Forms\Components\Placeholder::make('placeholder.codeInfo.admin_panel')
+                                ->label('Detected Admin panel')
+                                ->visible(fn (Forms\Get $get) => $get('projectInfo.codeInfo.admin_panel'))
+                                ->content(fn (Forms\Get $get) => $get('projectInfo.codeInfo.admin_panel')),
+
+                            Forms\Components\Placeholder::make('placeholder.codeInfo.frontend_builder')
+                                ->label('Frontend builder')
+                                ->visible(fn (Forms\Get $get) => $get('projectInfo.codeInfo.frontend_builder'))
+                                ->content(fn (Forms\Get $get) => $get('projectInfo.codeInfo.frontend_builder')),
+                        ];
+                    }
+
+                    if ($codeInfoDetails->isNode) {
+                        return [
+                            Forms\Components\Placeholder::make('placeholder.codeInfo.repository_type')
+                                ->label('Project type')
+                                ->content(fn (Forms\Get $get) => (new CiCdTemplateRepository())->getTemplateGroups()[$get('ci_cd_options.template_group')]?->nameAndIcon() ?: 'not resolved'),
+
+                            Forms\Components\Placeholder::make('placeholder.codeInfo.repository_template_group')
+                                ->label('Detected project template')
+                                ->content(fn (Forms\Get $get) => str($get('projectInfo.codeInfo.repository_template'))->title()),
+
+                            Forms\Components\Placeholder::make('placeholder.codeInfo.framework_version')
+                                ->label('Detected version for framework')
+                                ->visible(fn (Forms\Get $get) => $get('projectInfo.codeInfo.framework_version'))
+                                ->content(fn (Forms\Get $get) => $get('projectInfo.codeInfo.framework_version')),
+
+                            Forms\Components\Placeholder::make('placeholder.codeInfo.frontend_builder')
+                                ->label('Frontend builder')
+                                ->visible(fn (Forms\Get $get) => $get('projectInfo.codeInfo.frontend_builder'))
+                                ->content(fn (Forms\Get $get) => $get('projectInfo.codeInfo.frontend_builder')),
+                        ];
+                    }
+
+                    return [];
+                }),
         ]);
     }
 }
