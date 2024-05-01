@@ -241,7 +241,7 @@ class ConfigureRepositoryJob implements ShouldQueue
                 ->first()
                 ->message(
                     "We have finished configuring '{$this->gitlabProject->name}' repository.\n" .
-                    'Time elapsed: ' . now()->shortAbsoluteDiffForHumans(Carbon::parse($this->deployProject->deploy_payload['openedAt']))
+                    'Time elapsed: ' . now()->shortAbsoluteDiffForHumans(Carbon::parse($this->deployProject->deploy_payload['openedAt']), parts: 2)
                 )
                 ->keyboard(Keyboard::make()->button('GitLab pipeline')->url($gitlabPipelineUrl))
                 ->send();

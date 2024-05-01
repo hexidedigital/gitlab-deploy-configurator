@@ -96,10 +96,10 @@ class CiCdTemplateRepository
     protected function frontendTemplates(TemplateGroup $group): array
     {
         return [
-            'react_latest' => new TemplateInfo(
-                key: 'react_latest',
+            'react_3_0' => new TemplateInfo(
+                key: 'react_3_0',
                 name: 'React',
-                templateName: 'react.latest',
+                templateName: 'react.3.0',
                 group: $group,
                 canSelectNodeVersion: true,
                 hasBuildFolder: true,
@@ -108,10 +108,10 @@ class CiCdTemplateRepository
                     'preferredBuildType' => 'yarn',
                 ],
             ),
-            'vue_latest' => new TemplateInfo(
-                key: 'vue_latest',
+            'vue_3_0' => new TemplateInfo(
+                key: 'vue_3_0',
                 name: 'Vue',
-                templateName: 'vue.latest',
+                templateName: 'vue.3.0',
                 group: $group,
                 canSelectNodeVersion: true,
                 hasBuildFolder: true,
@@ -120,10 +120,10 @@ class CiCdTemplateRepository
                     'preferredBuildType' => 'npm',
                 ],
             ),
-            'nuxt_latest' => new TemplateInfo(
-                key: 'nuxt_latest',
+            'nuxt_3_0' => new TemplateInfo(
+                key: 'nuxt_3_0',
                 name: 'Nuxt',
-                templateName: 'nuxt.latest',
+                templateName: 'nuxt.3.0',
                 group: $group,
                 canSelectNodeVersion: true,
                 hasBuildFolder: false,
