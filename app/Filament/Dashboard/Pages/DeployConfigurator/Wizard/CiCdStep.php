@@ -32,84 +32,114 @@ class CiCdStep extends Forms\Components\Wizard\Step
             ->icon('heroicon-o-server')
             ->columns()
             ->schema([
-                Forms\Components\Select::make('ci_cd_options.template_group')
-                    ->label('Template types')
-                    ->columnSpan(1)
-                    ->live()
-                    ->options(
-                        collect($this->templateRepository->getTemplateGroups())
-                            ->mapWithKeys(fn (TemplateGroup $group) => [
-                                $group->key => $group->nameAndIcon(),
-                            ])
-                    )
-                    ->disableOptionWhen(function (string $value, Forms\Get $get) {
-                        if ($get('projectInfo.is_test')) {
-                            return false;
-                        }
-
-                        $codeInfoDetails = CodeInfoDetails::makeFromArray($get('projectInfo.codeInfo') ?: []);
-
-                        if ($codeInfoDetails->isLaravel) {
-                            return $value !== TemplateGroup::Backend;
-                        }
-
-                        if ($codeInfoDetails->isNode) {
-                            return $value !== TemplateGroup::Frontend;
-                        }
-
-                        return true;
-                    })
-                    ->helperText(
-                        new HtmlString('See more details about <a href="https://gitlab.hexide-digital.com/packages/gitlab-templates" class="underline" target="_blank">GitLab Templates</a>')
-                    )
-                    ->afterStateUpdated(function (Forms\Set $set) {
-                        $set('ci_cd_options.template_key', null);
-                    })
-                    ->required(),
-
-                Forms\Components\Select::make('ci_cd_options.template_key')
-                    ->label('CI/CD template version')
-                    ->columnSpan(1)
-                    ->visible(fn (Forms\Get $get) => $get('ci_cd_options.template_group'))
-                    ->live()
-                    ->options(fn (Forms\Get $get) => collect($this->templateRepository->getTemplatesForGroup($get('ci_cd_options.template_group')))
-                        ->map(fn (TemplateInfo $template) => $template->name)
-                        ->all())
-                    ->disableOptionWhen(fn (string $value, Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $value)?->isDisabled)
-                    ->afterStateUpdated(function (Forms\Get $get, Forms\Set $set, DeployConfigurator $livewire) {
-                        $templateInfo = $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
-                        $project = $livewire->gitlabService()->ignoreOnGitlabException()->findProject($get('projectInfo.selected_id'));
-
-                        if (!is_null($templateInfo?->preferredBuildFolder())) {
-                            $set('ci_cd_options.build_folder', $templateInfo->preferredBuildFolder());
-                        }
-
-                        if (!is_null($templateInfo?->preferredBuildFolder())) {
-                            $set('ci_cd_options.extra.pm2_name', str($project->name)->after('.')->beforeLast('.')->lower()->snake()->value());
-                        }
-                    })
-                    ->required(),
+                $this->getTemplateGroupSelectComponent(),
+                $this->getTemplateVersionSelectComponent(),
 
                 $this->getCiCdStagesToggleFieldSet(),
 
-                $this->getNodeVersionSelect(),
+                Forms\Components\Fieldset::make('Template specific options')
+                    ->columnSpanFull()
+                    ->schema(function (Forms\Get $get) {
+                        $templateInfo = $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
 
-                Forms\Components\TextInput::make('ci_cd_options.build_folder')
-                    ->label('Build folder')
-                    ->helperText('Which folder will be copies to server with rsync')
-                    ->columnSpan(1)
-                    ->datalist(['dist', 'build'])
-                    ->visible(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->hasBuildFolder)
-                    ->required(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->hasBuildFolder),
+                        $options = [];
 
-                Forms\Components\TextInput::make('ci_cd_options.extra.pm2_name')
-                    ->label('App name for PM2')
-                    ->columnSpan(1)
-                    ->visible(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->usesPM2())
-                    ->required(fn (Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))?->usesPM2()),
+                        if ($this->canSelectNodeVersion($get, $templateInfo)) {
+                            $options[] = Forms\Components\TextInput::make('ci_cd_options.node_version')
+                                ->label('Node.js version')
+                                ->columnSpan(1)
+                                ->datalist(collect(CiCdOptions::getNodeVersions())->values())
+                                ->required();
+                        }
+
+                        if ($templateInfo?->hasBuildFolder) {
+                            $options[] = Forms\Components\TextInput::make('ci_cd_options.build_folder')
+                                ->label('Build folder')
+                                ->helperText('Which folder will be copies to server with rsync')
+                                ->columnSpan(1)
+                                ->datalist(['dist', 'build'])
+                                ->required();
+                        }
+
+                        if ($templateInfo?->usesPM2()) {
+                            $options[] = Forms\Components\TextInput::make('ci_cd_options.extra.pm2_name')
+                                ->label('App name')
+                                ->helperText('Name of the PM2 process to stop and start on deployment')
+                                ->columnSpan(1)
+                                ->required();
+                        }
+
+                        return $options ?: [
+                            Forms\Components\Placeholder::make('placeholder.no_options')
+                                ->label('No options available for this template'),
+                        ];
+                    }),
 
                 $this->getStagesRepeater(),
             ]);
+    }
+
+    protected function getTemplateVersionSelectComponent(): Forms\Components\Select
+    {
+        return Forms\Components\Select::make('ci_cd_options.template_key')
+            ->label('CI/CD template version')
+            ->columnSpan(1)
+            ->visible(fn (Forms\Get $get) => $get('ci_cd_options.template_group'))
+            ->live()
+            ->options(fn (Forms\Get $get) => collect($this->templateRepository->getTemplatesForGroup($get('ci_cd_options.template_group')))
+                ->map(fn (TemplateInfo $template) => $template->name)
+                ->all())
+            ->disableOptionWhen(fn (string $value, Forms\Get $get) => $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $value)?->isDisabled)
+            ->afterStateUpdated(function (Forms\Get $get, Forms\Set $set, DeployConfigurator $livewire) {
+                $templateInfo = $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
+                $project = $livewire->gitlabService()->ignoreOnGitlabException()->findProject($get('projectInfo.selected_id'));
+
+                if ($templateInfo?->hasBuildFolder && !is_null($templateInfo?->preferredBuildFolder())) {
+                    $set('ci_cd_options.build_folder', $templateInfo->preferredBuildFolder());
+                }
+
+                if ($templateInfo?->usesPM2()) {
+                    $set('ci_cd_options.extra.pm2_name', str($project->name)->after('.')->beforeLast('.')->lower()->snake()->value());
+                }
+            })
+            ->required();
+    }
+
+    protected function getTemplateGroupSelectComponent(): Forms\Components\Select
+    {
+        return Forms\Components\Select::make('ci_cd_options.template_group')
+            ->label('Template types')
+            ->columnSpan(1)
+            ->live()
+            ->selectablePlaceholder(false)
+            ->options(
+                collect($this->templateRepository->getTemplateGroups())
+                    ->mapWithKeys(fn (TemplateGroup $group) => [$group->key => $group->nameAndIcon()])
+            )
+            ->disableOptionWhen(function (string $value, Forms\Get $get) {
+                if ($get('projectInfo.is_test')) {
+                    return false;
+                }
+
+                $codeInfoDetails = CodeInfoDetails::makeFromArray($get('projectInfo.codeInfo') ?: []);
+
+                if ($codeInfoDetails->isLaravel) {
+                    return $value !== TemplateGroup::Backend;
+                }
+
+                if ($codeInfoDetails->isNode) {
+                    return $value !== TemplateGroup::Frontend;
+                }
+
+                return true;
+            })
+            ->helperText(
+                new HtmlString('See more details about <a href="https://gitlab.hexide-digital.com/packages/gitlab-templates" class="underline" target="_blank">GitLab Templates</a>')
+            )
+            ->afterStateUpdated(function (Forms\Set $set) {
+                $set('ci_cd_options.template_key', null);
+            })
+            ->required();
     }
 
     protected function getCiCdStagesToggleFieldSet(): Forms\Components\Fieldset
@@ -141,27 +171,6 @@ class CiCdStep extends Forms\Components\Wizard\Step
             ]);
     }
 
-    protected function getNodeVersionSelect(): Forms\Components\Select
-    {
-        return Forms\Components\Select::make('ci_cd_options.node_version')
-            ->label('Node.js version')
-            ->visible(function (Forms\Get $get) {
-                return $this->canSelectNodeVersion(
-                    $get,
-                    $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'))
-                );
-            })
-            ->columnSpan(1)
-            ->options([
-                '22' => '22',
-                '20' => '20',
-                '18' => '18',
-                '16' => '16',
-                '14' => '14',
-            ])
-            ->required(fn (Forms\Get $get) => $get('ci_cd_options.enabled_stages.' . CiCdOptions::BuildStage));
-    }
-
     protected function getStagesRepeater(): Forms\Components\Repeater
     {
         return Forms\Components\Repeater::make('Add stages to deploy')
@@ -180,8 +189,7 @@ class CiCdStep extends Forms\Components\Wizard\Step
             ->schema([
                 Forms\Components\TextInput::make('name')
                     ->live(onBlur: true)
-                    ->label('Stage name (branch name)')
-                    ->hiddenLabel()
+                    ->label('Branch name')
                     ->placeholder('dev/stage/master/prod')
                     ->distinct()
                     ->notIn(function (DeployConfigurator $livewire, Forms\Get $get) {

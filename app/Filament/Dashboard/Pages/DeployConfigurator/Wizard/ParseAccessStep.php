@@ -40,9 +40,9 @@ class ParseAccessStep extends Forms\Components\Wizard\Step
                         return $livewire->form->getRawState();
                     })
                     ->showMoreConfigurationSection(function (Forms\Get $get) {
-                        $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
+                        $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup($get('ci_cd_options.template_group'));
 
-                        return is_null($templateInfo) || $templateInfo->group->isBackend();
+                        return is_null($templateGroup) || $templateGroup->isBackend();
                     }),
             ]);
     }

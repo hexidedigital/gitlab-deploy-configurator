@@ -5,12 +5,15 @@ namespace App\Http\Telegram;
 use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Domains\DeployConfigurator\Data\CiCdOptions;
 use App\Domains\DeployConfigurator\Data\ProjectDetails;
+use App\Domains\DeployConfigurator\Data\Stage\SshOptions;
 use App\Domains\DeployConfigurator\Data\Stage\StageOptions;
 use App\Domains\DeployConfigurator\Data\TemplateGroup;
 use App\Domains\DeployConfigurator\Data\TemplateInfo;
 use App\Domains\DeployConfigurator\DeployConfigBuilder;
+use App\Domains\DeployConfigurator\DeploymentOptions\Options\Server;
 use App\Domains\DeployConfigurator\DeployProjectBuilder;
 use App\Domains\DeployConfigurator\Jobs\ConfigureRepositoryJob;
+use App\Domains\DeployConfigurator\ServerDetailParser;
 use App\Domains\GitLab\Data\ProjectData;
 use App\Exceptions\Telegram\Halt;
 use App\Exceptions\Telegram\MissingUserException;
@@ -26,14 +29,16 @@ use DefStudio\Telegraph\Keyboard\Keyboard;
 use DefStudio\Telegraph\Keyboard\ReplyKeyboard;
 use DefStudio\Telegraph\Models\TelegraphBot;
 use DefStudio\Telegraph\Telegraph;
+use DomainException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 use Illuminate\Support\Stringable;
 use phpseclib3\Crypt\PublicKeyLoader;
 use phpseclib3\Net\SSH2;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Throwable;
+
+use function Pest\Laravel\json;
 
 class DeployWebhookHandler extends WebhookHandler
 {
@@ -458,7 +463,7 @@ class DeployWebhookHandler extends WebhookHandler
         $codeInfo = $projectDetails->codeInfo;
 
         $ciCdOptions = CiCdOptions::makeFromArray(data_get($this->chatContext->context_data, 'ci_cd_options'));
-        $templateGroupName = (new CiCdTemplateRepository())->getTemplateGroups()[$ciCdOptions->template_group]?->nameAndIcon() ?: 'not resolved';
+        $templateGroupName = (new CiCdTemplateRepository())->getTemplateGroup($ciCdOptions->template_group)?->nameAndIcon() ?: 'not resolved';
 
         $code = "Template: *{$templateGroupName}*\n";
         if ($codeInfo->isLaravel) {
@@ -708,7 +713,7 @@ class DeployWebhookHandler extends WebhookHandler
         $repository = new CiCdTemplateRepository();
 
         $templateInfo = $repository->getTemplateInfo($ciCdOptions->template_group, $ciCdOptions->template_key);
-        $group = $repository->getTemplateGroups()[$ciCdOptions->template_group];
+        $group = $repository->getTemplateGroup($ciCdOptions->template_group);
 
         $message = "Used CI/CD options:";
 
@@ -883,7 +888,7 @@ class DeployWebhookHandler extends WebhookHandler
 
                     $buttons = collect((new CiCdTemplateRepository())->getTemplatesForGroup($selectGroup))
                         ->map(function (TemplateInfo $templateInfo) use ($selectGroup) {
-                            $icon = $templateInfo->isDisabled ? '⚫' : '🟢';
+                            $icon = $templateInfo->isDisabled ? '✋' : '👀';
 
                             return $this->makeCallbackButton("{$templateInfo->name} {$icon}", 'configureCiCdOptionsCallback', [
                                 'action' => 'save_selected_template',
@@ -999,8 +1004,8 @@ class DeployWebhookHandler extends WebhookHandler
             // / ----------------------
             'change_node' => function () use ($backButton) {
                 $this->chat->edit($this->callbackQuery->message()->id())->message('Change node version to:')->keyboard(function (Keyboard $keyboard) use ($backButton) {
-                    $buttons = collect(['22', '20', '18', '16', '14'])
-                        ->map(fn ($v) => $this->makeCallbackButton($v, 'configureCiCdOptionsCallback', [
+                    $buttons = collect(CiCdOptions::getNodeVersions())->values()
+                        ->map(fn (string $v) => $this->makeCallbackButton($v, 'configureCiCdOptionsCallback', [
                             'action' => 'save_node_version',
                             'v' => $v,
                         ]));
@@ -1116,18 +1121,27 @@ class DeployWebhookHandler extends WebhookHandler
             $this->chat->message('Great! Now I will try to connect to the server...')->removeReplyKeyboard()->send();
             $this->loading();
 
-            $parseState['ssh_connected'] = false;
             $parseState['server_connection_result'] = null;
+            $parseState['ssh_connected'] = false;
 
-            $server = data_get($this->chatContext->context_data, 'accessInfo.server');
-            $sshOptions = data_get($this->chatContext->context_data, 'options.ssh');
-            $ssh = $this->connectToServer($server, $sshOptions);
+            $isTest = data_get($this->chatContext->context_data, 'projectInfo.is_test');
 
-            $this->chat->message("Server connection result: " . ($ssh ? '✅' : '❌'))->send();
+            $serverDetailParser = new ServerDetailParser(
+                $server = new Server(data_get($this->chatContext->context_data, 'accessInfo.server')),
+                $sshOptions = SshOptions::makeFromArray(data_get($this->chatContext->context_data, 'options.ssh') ?: []),
+            );
 
-            if (!$ssh) {
-                $this->chat->message("I can't connect to the server. Please check the access data and try again.")->send();
-                $this->chat->message('⚠ If you using private key to connect, use web version. Authorization with private key is not supported in telegram.')->send();
+            try {
+                $serverDetailParser->establishSSHConnection();
+
+                $this->chat->message("Server connection result: ✅")->send();
+            } catch (DomainException $exception) {
+                $this->chat->message("Server connection result: ❌")->send();
+
+                $this->chat->markdown("I can't connect to the server. Please check the access data and try again.\n\n```\n{$exception->getMessage()}\n```")->send();
+                if ($sshOptions->useCustomSshKey || empty($server->password)) {
+                    $this->chat->message('⚠ If you using private key to connect, use web version. Authorization with private key is not supported in telegram.')->send();
+                }
 
                 $this->chatContext->pushToState(['parse_state' => $parseState]);
                 $this->chatContext->pushToData(['stages' => [$stage]]);
@@ -1137,102 +1151,32 @@ class DeployWebhookHandler extends WebhookHandler
 
             $parseState['ssh_connected'] = true;
 
-            $this->chat->message('SSH connection successful')->send();
-
             $this->chat->message('Fetching server information...')->send();
 
             $this->loading();
 
-            $templateInfo = ($group = data_get($this->chatContext->context_data, 'ci_cd_options.template_group'))
-                ? (new CiCdTemplateRepository())->getTemplateInfo($group, data_get($this->chatContext->context_data, 'ci_cd_options.template_key'))
-                : null;
+            $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup(data_get($this->chatContext->context_data, 'ci_cd_options.template_group'));
+            $isBackend = (is_null($templateGroup) || $templateGroup->isBackend());
 
-            $isBackend = (is_null($templateInfo) || $templateInfo->group->isBackend());
+            $serverDetailParser->setIsBackendServer($isBackend);
+            $serverDetailParser->parse();
 
-            $homeFolder = str($ssh->exec('echo $HOME'))->trim()->rtrim('/')->value();
+            $parseResult = $serverDetailParser->getParseResult();
 
-            if ($isBackend) {
-                /** @var Collection $paths */
-                $paths = str($ssh->exec('whereis php php8.2 composer'))
-                    ->explode(PHP_EOL)
-                    ->mapWithKeys(function ($pathInfo, $line) {
-                        $binType = Str::of($pathInfo)->before(':')->trim()->value();
-                        $all = Str::of($pathInfo)->after("{$binType}:")->ltrim()->explode(' ');
-                        $binPath = $all->first();
+            $testFolder = $isTest ? '/test' : '';
 
-                        if (!$binType || !$binPath) {
-                            return [$line => null];
-                        }
-
-                        if (Str::startsWith($binType, 'php')) {
-                            $all = $all->reject(fn ($path) => Str::contains($path, ['-', '.gz', 'man']));
-                        }
-
-                        return [
-                            $binType => [
-                                'bin' => $binPath,
-                                'all' => $all->map(fn ($path) => "{$path}")->implode('; '),
-                            ],
-                        ];
-                    })
-                    ->filter();
-
-                $phpV = '-';
-                $composerV = '-';
-                $composerVOutput = '-';
-
-                $phpInfo = $paths->get('php8.2', $paths->get('php'));
-                if (empty($phpInfo['bin'])) {
-                    $phpVOutput = 'PHP not found';
-                } else {
-                    $binPhp = $phpInfo['bin'];
-                    $phpVOutput = $ssh->exec($binPhp . ' -v');
-
-                    $phpV = preg_match('/PHP (\d+\.\d+\.\d+)/', $phpVOutput, $matches) ? $matches[1] : '-';
-
-                    if ($binComposer = $paths->get('composer')['bin'] ?? null) {
-                        $composerVOutput = $ssh->exec("{$binPhp} {$binComposer} -V");
-
-                        $composerV = preg_match('/Composer (?:version )?(\d+\.\d+\.\d+)/', $composerVOutput, $matches) ? $matches[1] : '-';
-                    } else {
-                        $composerVOutput = 'Composer not found';
-                    }
-                }
-            }
-            $info = collect([
-                "home folder: `{$homeFolder}`",
-                ...($isBackend ? [
-                    "--------",
-                    "*bin paths*",
-                    ...$paths->map(fn ($path, $type) => "{$type}: `{$path['bin']}`"),
-                    "--------",
-                    "all php bins: `{$phpInfo['all']}`",
-                    "--------",
-                    "*php: ({$phpV})*",
-                    "```\n{$phpVOutput}```",
-                    "--------",
-                    "*composer: ({$composerV})*",
-                    "```\n{$composerVOutput}```",
-                    "--------",
-                ] : []),
-            ])->implode("\n");
-
-            $parseState['server_connection_result'] = $info;
-            $this->chat->markdown("Server info fetched:\n\n{$info}")->send();
-
-            $testFolder = data_get($this->chatContext->context_data, 'projectInfo.is_test') ? '/test' : '';
             // set server details options
-            $domain = str($server['domain'])->replace(['https://', 'http://'], '')->value();
+            $domain = str($server->domain)->after('://')->value();
             $baseDir = in_array($stage['name'], ['dev', 'stage'])
-                ? "{$homeFolder}/web/{$domain}/public_html"
-                : "{$homeFolder}/{$domain}/www";
+                ? "{$parseResult['homeFolderPath']}/web/{$domain}/public_html"
+                : "{$parseResult['homeFolderPath']}/{$domain}/www";
 
             $newOptions = [
                 'base-dir-pattern' => $baseDir . $testFolder,
-                'home-folder' => $homeFolder . $testFolder,
+                'home-folder' => $parseResult['homeFolderPath'] . $testFolder,
                 ...($isBackend ? [
-                    'bin-php' => $phpInfo['bin'],
-                    'bin-composer' => "{$phpInfo['bin']} {$paths->get('composer')['bin']}",
+                    'bin-php' => $parseResult['phpInfo']['bin'],
+                    'bin-composer' => "{$parseResult['phpInfo']['bin']} " . collect($parseResult['paths'])->get('composer')['bin'],
                 ] : [
                     'bin-php' => null,
                     'bin-composer' => null,
@@ -1240,15 +1184,27 @@ class DeployWebhookHandler extends WebhookHandler
             ];
             $stage['options'] = array_merge($stage['options'], $newOptions);
 
-            $message = "🧰 Options for deployment:\n";
-            foreach ($newOptions as $name => $value) {
-                if (!$isBackend && in_array($name, ['bin-php', 'bin-composer'])) {
-                    continue;
-                }
-                $title = str($name)->kebab()->replace(['-', '_'], ' ')->ucfirst()->value();
-                $message .= "\n- *{$title}*: `{$value}`";
-            }
-            $this->chat->markdown($message)->send();
+            $info = collect([
+                "deploy folder: `{$baseDir}`",
+                "home folder: `{$parseResult['homeFolderPath']}`",
+                ...($isBackend ? [
+                    "--------",
+                    "*bin paths*",
+                    ...collect($parseResult['paths'])->map(fn ($path, $type) => "{$type}: `{$path['bin']}`"),
+                    "--------",
+                    "all php bins: `{$parseResult['phpInfo']['all']}`",
+                    "--------",
+                    "*php: ({$parseResult['phpVersion']})*",
+                    "```\n{$parseResult['phpOutput']}```",
+                    "--------",
+                    "*composer: ({$parseResult['composerVersion']})*",
+                    "```\n{$parseResult['composerOutput']}```",
+                    "--------",
+                ] : []),
+            ])->implode("\n");
+            $parseState['server_connection_result'] = $info;
+
+            $telegraphResponse = $this->chat->markdown("Server information:\n\n{$info}")->send();
 
             $this->chatContext->pushToState(['parse_state' => $parseState]);
             $this->chatContext->pushToData(['stages' => [$stage]]);
@@ -1314,9 +1270,14 @@ class DeployWebhookHandler extends WebhookHandler
 
         $this->chat->markdown($message)->send();
 
-        $this->chat->markdown('Are you confirm the parsed access data?')->replyKeyboard(function (ReplyKeyboard $keyboard) {
-            return $keyboard->button('Yes ✅')->button('No 🔁')->chunk(2)->resize()->oneTime()->inputPlaceholder('Choose option...');
-        })->send();
+        $this->chat
+            ->markdown(
+                "Are you confirm the parsed access data?\n\n" .
+                "If yes, I will try to connect and fetch server details. Otherwise, you can send me new access data."
+            )
+            ->replyKeyboard(function (ReplyKeyboard $keyboard) {
+                return $keyboard->button('Yes ✅')->button('No 🔁')->chunk(2)->resize()->oneTime()->inputPlaceholder('Choose option...');
+            })->send();
 
         $notResolved = $parser->getNotResolved($stageName);
         if (!empty($notResolved)) {
@@ -1390,11 +1351,8 @@ class DeployWebhookHandler extends WebhookHandler
 
     protected function makeMessageForDeploymentSettings(StageOptions $options): string
     {
-        $templateInfo = ($group = data_get($this->chatContext->context_data, 'ci_cd_options.template_group'))
-            ? (new CiCdTemplateRepository())->getTemplateInfo($group, data_get($this->chatContext->context_data, 'ci_cd_options.template_key'))
-            : null;
-
-        $isBackend = (is_null($templateInfo) || $templateInfo->group->isBackend());
+        $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup(data_get($this->chatContext->context_data, 'ci_cd_options.template_group'));
+        $isBackend = (is_null($templateGroup) || $templateGroup->isBackend());
 
         $newOptions = [
             'base-dir-pattern' => $options->baseDirPattern,
@@ -1409,8 +1367,13 @@ class DeployWebhookHandler extends WebhookHandler
                 continue;
             }
 
-            $title = str($name)->kebab()->replace(['-', '_'], ' ')->ucfirst()->value();
-            $message .= "\n- *{$title}*: `{$value}`";
+            $title = [
+                'base-dir-pattern' => 'Deploy folder',
+                'home-folder' => 'Home folder',
+                'bin-php' => 'bin/php',
+                'bin-composer' => 'bin/composer',
+            ];
+            $message .= "\n- *{$title[$name]}*: `{$value}`";
         }
 
         return $message;
@@ -1526,21 +1489,18 @@ class DeployWebhookHandler extends WebhookHandler
             // / ----------------------
             'server_paths' => function () use ($backButton) {
                 $this->chat->edit($this->messageId)->markdown('Change server paths:')->keyboard(function (Keyboard $keyboard) use ($backButton) {
-                    $templateInfo = ($group = data_get($this->chatContext->context_data, 'ci_cd_options.template_group'))
-                        ? (new CiCdTemplateRepository())->getTemplateInfo($group, data_get($this->chatContext->context_data, 'ci_cd_options.template_key'))
-                        : null;
-
-                    $isBackend = (is_null($templateInfo) || $templateInfo->group->isBackend());
+                    $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup(data_get($this->chatContext->context_data, 'ci_cd_options.template_group'));
+                    $isBackend = (is_null($templateGroup) || $templateGroup->isBackend());
 
                     $buttons = [
-                        $this->makeCallbackButton('Base dir', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'base-dir-pattern']),
+                        $this->makeCallbackButton('Deploy folder', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'base-dir-pattern']),
                         $this->makeCallbackButton('Home folder', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'home-folder']),
                     ];
 
                     if ($isBackend) {
                         $buttons = array_merge($buttons, [
-                            $this->makeCallbackButton('php', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'bin-php']),
-                            $this->makeCallbackButton('composer', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'bin-composer']),
+                            $this->makeCallbackButton('bin/php', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'bin-php']),
+                            $this->makeCallbackButton('bin/composer', 'configureDeploymentSettingsCallback', ['action' => 'edit_path', 'property' => 'bin-composer']),
                         ]);
                     }
 
@@ -1553,7 +1513,7 @@ class DeployWebhookHandler extends WebhookHandler
             },
             'edit_path' => function () use ($callbackButton) {
                 $message = match ($callbackButton->payload->get('property')) {
-                    'base-dir-pattern' => 'Change base dir path',
+                    'base-dir-pattern' => 'Change deploy folder path',
                     'home-folder' => 'Change home folder path',
                     'bin-php' => 'Change php bin path',
                     'bin-composer' => 'Change composer bin path',

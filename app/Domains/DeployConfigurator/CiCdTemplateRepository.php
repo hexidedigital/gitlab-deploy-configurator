@@ -21,10 +21,15 @@ class CiCdTemplateRepository
     public function getTemplatesForGroup(?string $templateGroup): array
     {
         return match ($templateGroup) {
-            TemplateGroup::Backend => $this->backendTemplates($this->getTemplateGroups()[TemplateGroup::Backend]),
-            TemplateGroup::Frontend => $this->frontendTemplates($this->getTemplateGroups()[TemplateGroup::Frontend]),
+            TemplateGroup::Backend => $this->backendTemplates($this->getTemplateGroup(TemplateGroup::Backend)),
+            TemplateGroup::Frontend => $this->frontendTemplates($this->getTemplateGroup(TemplateGroup::Frontend)),
             default => [],
         };
+    }
+
+    public function getTemplateGroup(?string $group): ?TemplateGroup
+    {
+        return $this->getTemplateGroups()[$group] ?? null;
     }
 
     /**

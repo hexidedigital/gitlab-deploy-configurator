@@ -2,6 +2,7 @@
 
 namespace App\Filament\Dashboard\Pages\DeployConfigurator\Wizard;
 
+use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Filament\Forms;
 use Filament\Support\Exceptions\Halt;
@@ -32,41 +33,27 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                 }
             })
             ->schema([
+                Forms\Components\Toggle::make('refresh')->live(),
+
                 Forms\Components\Section::make('Summary')
-                    ->schema(function (DeployConfigurator $livewire) {
+                    ->schema(function (DeployConfigurator $livewire, Forms\Get $get) {
+                        $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
+
                         return [
-                            Forms\Components\Fieldset::make('Project')
+                            Forms\Components\Grid::make()
                                 ->columns()
-                                ->schema([
-                                    Forms\Components\Placeholder::make('placeholder.name')
-                                        ->label('Repository')
-                                        ->content(fn (Forms\Get $get) => $get('projectInfo.name')),
-
-                                    Forms\Components\Placeholder::make('placeholder.project_id')
-                                        ->label('Project ID')
-                                        ->content(fn (Forms\Get $get) => $get('projectInfo.project_id')),
-
-                                    Forms\Components\Placeholder::make('placeholder.web_url')
-                                        ->columnSpanFull()
-                                        ->content(fn (Forms\Get $get) => new HtmlString(
-                                            sprintf(
-                                                '<a href="%s" class="underline" target="_blank">%s</a>',
-                                                $get('projectInfo.web_url'),
-                                                $get('projectInfo.web_url')
-                                            )
-                                        )),
-                                ]),
+                                ->schema([ProjectStep::getProjectInfoGrid()]),
 
                             Forms\Components\Fieldset::make('Repository and CI/CD')
                                 ->columns()
                                 ->schema([
                                     Forms\Components\Placeholder::make('placeholder.ci_cd_options.template_group')
                                         ->label('CI/CD template type')
-                                        ->content(fn (Forms\Get $get) => $get('ci_cd_options.template_group')),
+                                        ->content($templateInfo->group->nameAndIcon()),
 
                                     Forms\Components\Placeholder::make('placeholder.ci_cd_options.template_key')
                                         ->label('CI/CD template version')
-                                        ->content(fn (Forms\Get $get) => $get('ci_cd_options.template_key')),
+                                        ->content($templateInfo->name),
                                 ]),
 
                             Forms\Components\Repeater::make('stages')
@@ -83,20 +70,22 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                                                 ->columnSpan(1)
                                                 ->schema([
                                                     $livewire->getServerFieldset(),
-                                                    Forms\Components\Fieldset::make('Server details')
+                                                    Forms\Components\Fieldset::make('Options for deployment')
                                                         ->columns(1)
                                                         ->schema([
                                                             Forms\Components\Placeholder::make('placeholder.options.base_dir_pattern')
-                                                                ->label('Base dir pattern')
+                                                                ->label('Deploy folder')
                                                                 ->content(fn (Forms\Get $get) => $get('options.base_dir_pattern')),
                                                             Forms\Components\Placeholder::make('placeholder.options.home_folder')
                                                                 ->label('Home folder')
                                                                 ->content(fn (Forms\Get $get) => $get('options.home_folder')),
                                                             Forms\Components\Placeholder::make('placeholder.options.bin_php')
                                                                 ->label('bin/php')
+                                                                ->visible($templateInfo->group->isBackend())
                                                                 ->content(fn (Forms\Get $get) => $get('options.bin_php')),
                                                             Forms\Components\Placeholder::make('placeholder.options.bin_composer')
                                                                 ->label('bin/composer')
+                                                                ->visible($templateInfo->group->isBackend())
                                                                 ->content(fn (Forms\Get $get) => $get('options.bin_composer')),
                                                         ]),
                                                 ]),

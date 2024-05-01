@@ -35,7 +35,7 @@ class GitlabCiCdYamlGenerator
             $variables['NODE_VERSION'] = ['value' => $this->ciCdOptions->node_version];
         }
 
-        if ($templateInfo->group->isFrontend() && !$templateInfo->usesPM2()) {
+        if ($templateInfo->hasBuildFolder && $this->ciCdOptions->build_folder !== $templateInfo->preferredBuildFolder()) {
             $variables['BUILD_FOLDER'] = ['value' => $this->ciCdOptions->build_folder];
         }
 

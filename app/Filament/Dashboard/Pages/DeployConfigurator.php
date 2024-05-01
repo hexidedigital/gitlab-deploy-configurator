@@ -28,6 +28,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\MaxWidth;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use NotificationChannels\Telegram\TelegramMessage;
@@ -60,6 +61,16 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
     public function getMaxContentWidth(): MaxWidth|string|null
     {
         return null;
+    }
+
+    public function getTitle(): string|Htmlable
+    {
+        $project = $this->gitlabService()->ignoreOnGitlabException()->findProject(data_get($this, 'data.projectInfo.selected_id'));
+        if (!$project) {
+            return parent::getTitle();
+        }
+
+        return str(parent::getTitle())->append(" - <i>\"{$project->name}\"</i>")->toHtmlString();
     }
 
     public function mount(): void
@@ -158,7 +169,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                     $action->icon('heroicon-o-chevron-double-right');
                 })
                 ->schema([
-                    Wizard\GitlabStep::make(),
+                    Wizard\GitlabStep::make()->hidden(),
                     Wizard\ProjectStep::make(),
                     Wizard\CiCdStep::make(),
                     Wizard\ParseAccessStep::make(),
@@ -179,7 +190,6 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                     $stages = $deployConfigBuilder->processStages();
                     $ciCdOptions = CiCdOptions::makeFromArray($configurations['ci_cd_options']);
                     $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($ciCdOptions->template_group, $ciCdOptions->template_key);
-                    $isBackend = $templateInfo->group->isBackend();
 
                     return [
                         Forms\Components\View::make('deployer.helpful-suggestion')
@@ -187,7 +197,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                                 'stages' => $stages,
                                 'projectDetails' => ProjectDetails::makeFromArray($configurations['projectInfo']),
                                 'ciCdOptions' => $ciCdOptions,
-                                'isBackend' => $isBackend,
+                                'isBackend' => $templateInfo->group->isBackend(),
                                 'templateInfo' => $templateInfo,
                             ]),
                     ];

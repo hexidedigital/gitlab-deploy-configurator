@@ -320,9 +320,7 @@ class ConfigureRepositoryJob implements ShouldQueue
     private function isFrontend(): bool
     {
         return once(function () {
-            $templateGroup = (new CiCdTemplateRepository())->getTemplateGroups()[$this->ciCdOptions->template_group];
-
-            return $templateGroup->isFrontend();
+            return (new CiCdTemplateRepository())->getTemplateGroup($this->ciCdOptions->template_group)->isFrontend();
         });
     }
 

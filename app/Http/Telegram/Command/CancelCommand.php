@@ -9,8 +9,7 @@ trait CancelCommand
         $this->makePreparationsForWork();
 
         if (is_null($this->chatContext->current_command)) {
-            // What do you want?
-            $this->chat->markdown('Hey 😑! Don\'t touch me, you have no active command to cancel. I\'m go back to sleep 😴  _Zzzz_...')->send();
+            $this->chat->markdown("Hey 😑! What do you want? You have no active commands to cancel. I'm going back to sleep 😴  Zzzz...")->send();
 
             return;
         }

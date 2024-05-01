@@ -33,6 +33,17 @@ readonly class CiCdOptions implements Arrayable
         );
     }
 
+    public static function getNodeVersions(): array
+    {
+        return [
+            '22' => '22',
+            '20' => '20',
+            '18' => '18',
+            '16' => '16',
+            '14' => '14',
+        ];
+    }
+
     public function isStageDisabled(string $stageName): bool
     {
         return !$this->isStageEnabled($stageName);

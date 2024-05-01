@@ -3,11 +3,15 @@
 namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
 use App\Domains\DeployConfigurator\CiCdTemplateRepository;
+use App\Domains\DeployConfigurator\Data\Stage\SshOptions;
 use App\Domains\DeployConfigurator\DeployConfigBuilder;
+use App\Domains\DeployConfigurator\DeploymentOptions\Options\Server;
+use App\Domains\DeployConfigurator\ServerDetailParser;
 use App\Filament\Actions\Forms\Components\CopyAction;
 use App\Filament\Contacts\HasParserInfo;
 use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Closure;
+use DomainException;
 use Exception;
 use Filament\Forms;
 use Filament\Notifications\Notification;
@@ -15,10 +19,6 @@ use Filament\Support\Colors\Color;
 use Filament\Support\Enums\ActionSize;
 use Filament\Support\Enums\Alignment;
 use Filament\Support\Enums\IconSize;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
-use phpseclib3\Crypt\PublicKeyLoader;
-use phpseclib3\Net\SSH2;
 use Throwable;
 
 class ParseAccessSchema extends Forms\Components\Grid
@@ -54,11 +54,21 @@ class ParseAccessSchema extends Forms\Components\Grid
         return $this->evaluate($this->retrieveConfigurationsUsing);
     }
 
-    public function getStagesRepeater(): Forms\Components\Repeater
+    public function stagesRepeater(?Closure $callback): static
+    {
+        return $this->tap(fn () => $this->modifyStageRepeaterUsing = $callback);
+    }
+
+    public function showNameInput(bool|Closure $callback = true): static
+    {
+        return $this->tap(fn () => $this->nameInputVisible = $callback);
+    }
+
+    protected function getStagesRepeater(): Forms\Components\Repeater
     {
         $repeater = Forms\Components\Repeater::make('stages')
             ->hiddenLabel()
-            ->itemLabel(fn (array $state) => str($state['name'] ? "Manage **" . $state['name'] . "** stage" : 'Adding new stage...')->markdown()->toHtmlString())
+            ->itemLabel(fn (array $state) => str($state['name'] ? "Manage stage: **{$state['name']}**" : 'Adding new stage...')->markdown()->toHtmlString())
             ->addable(false)
             ->addActionLabel('Add new stage')
             ->deletable(false)
@@ -68,58 +78,18 @@ class ParseAccessSchema extends Forms\Components\Grid
             ->schema(function (Forms\Get $get) {
                 return [
                     Forms\Components\TextInput::make('name')
-                        ->label('Stage name (branch name)')
+                        ->label('Branch name')
                         ->hiddenLabel()
                         ->distinct()
                         ->live(onBlur: true)
                         ->placeholder('dev/stage/master/prod')
-                        ->datalist([
-                            'dev',
-                            'stage',
-                            'master',
-                            'prod',
-                        ])
+                        ->datalist(['dev', 'stage', 'master', 'prod'])
                         ->visible($this->nameInputVisible),
 
                     Forms\Components\Grid::make(6)
                         ->visible(fn (Forms\Get $get) => $get('name'))
                         ->schema([
-                            Forms\Components\Section::make(fn (array $state) => str("Access data for **" . $state['name'] . "** stage")->markdown()->toHtmlString())
-                                ->columnSpan(fn (Forms\Get $get) => !is_null($get('notResolved')) ? 4 : 6)
-                                ->icon('heroicon-o-key')
-                                ->iconColor(fn (Forms\Get $get) => !is_null($get('notResolved')) ? Color::Orange : Color::Blue)
-                                ->footerActions([
-                                    $this->getParseStageAccessAction(),
-                                ])
-                                ->footerActionsAlignment(Alignment::End)
-                                ->collapsible(fn (Forms\Get $get, HasParserInfo $livewire) => $livewire->getParseStatusForStage($get('name')))
-                                ->schema([
-                                    Forms\Components\Textarea::make('access_input')
-                                        ->label('Access data')
-                                        ->hint('paste access data here')
-                                        ->autofocus()
-                                        ->live(onBlur: true)
-                                        ->required()
-                                        ->extraInputAttributes([
-                                            'rows' => 15,
-                                        ])
-                                        ->afterStateUpdated(function (?string $state, Forms\Get $get, Forms\Set $set, HasParserInfo $livewire) {
-                                            // reset data
-                                            $set('can_be_parsed', false);
-                                            $set('access_is_correct', false);
-
-                                            $set('server_connection_result', null);
-                                            $set('ssh_connected', false);
-
-                                            $livewire->setParseStatusForStage($get('name'), false);
-
-                                            if (!$state) {
-                                                return;
-                                            }
-
-                                            $this->tryToParseAccessInput($get('name'), $state);
-                                        }),
-                                ]),
+                            $this->getParseAccessDataSection(),
 
                             Forms\Components\Section::make('Parse problems')
                                 ->icon('heroicon-o-exclamation-circle')
@@ -162,17 +132,45 @@ class ParseAccessSchema extends Forms\Components\Grid
         return $repeater;
     }
 
-    public function stagesRepeater(?Closure $callback): static
+    protected function getParseAccessDataSection(): Forms\Components\Section
     {
-        return $this->tap(fn () => $this->modifyStageRepeaterUsing = $callback);
+        return Forms\Components\Section::make(fn (array $state) => str("Access data for **" . $state['name'] . "**")->markdown()->toHtmlString())
+            ->columnSpan(fn (Forms\Get $get) => !is_null($get('notResolved')) ? 4 : 6)
+            ->icon('heroicon-o-key')
+            ->iconColor(fn (Forms\Get $get) => !is_null($get('notResolved')) ? Color::Orange : Color::Blue)
+            ->footerActions([
+                $this->getParseStageAccessAction(),
+            ])
+            ->footerActionsAlignment(Alignment::End)
+            ->collapsible(fn (Forms\Get $get, HasParserInfo $livewire) => $livewire->getParseStatusForStage($get('name')))
+            ->schema([
+                Forms\Components\Textarea::make('access_input')
+                    ->label('Access data')
+                    ->hint('paste access data here')
+                    ->autofocus()
+                    ->live(onBlur: true)
+                    ->required()
+                    ->rows(15)
+                    ->afterStateUpdated(function (?string $state, Forms\Get $get, Forms\Set $set, HasParserInfo $livewire) {
+                        // reset data
+                        $set('can_be_parsed', false);
+                        $set('access_is_correct', false);
+
+                        $set('server_connection_result', null);
+                        $set('ssh_connected', false);
+
+                        $livewire->setParseStatusForStage($get('name'), false);
+
+                        if (!$state) {
+                            return;
+                        }
+
+                        $this->tryToParseAccessInput($get('name'), $state);
+                    }),
+            ]);
     }
 
-    public function showNameInput(bool|Closure $callback = true): static
-    {
-        return $this->tap(fn () => $this->nameInputVisible = $callback);
-    }
-
-    public function getDeployConfigurationSection(): Forms\Components\Section
+    protected function getDeployConfigurationSection(): Forms\Components\Section
     {
         return Forms\Components\Section::make(str('Deploy configuration `.yml` for all stages')->markdown()->toHtmlString())
             ->description('If you want, you can download the configuration file for all stages at once')
@@ -180,13 +178,9 @@ class ParseAccessSchema extends Forms\Components\Grid
             ->visible(function (HasParserInfo $livewire, Forms\Get $get) {
                 $defaultState = $livewire->hasParsedStage();
 
-                if (is_null($get('ci_cd_options.template_group'))) {
-                    return $defaultState;
-                }
+                $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup($get('ci_cd_options.template_group'));
 
-                $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
-
-                return $defaultState && (is_null($templateInfo) || $templateInfo->group->isBackend());
+                return $defaultState && (is_null($templateGroup) || $templateGroup->isBackend());
             })
             ->icon('heroicon-o-document-text')
             ->iconColor(Color::Orange)
@@ -220,11 +214,11 @@ class ParseAccessSchema extends Forms\Components\Grid
             ]);
     }
 
-    public function getParseStageAccessAction(): Closure
+    protected function getParseStageAccessAction(): Closure
     {
         return function (Forms\Get $get) {
             return Forms\Components\Actions\Action::make('parse-' . $get('name'))
-                ->label(fn (array $state) => str("Parse **" . $state['name'] . "** access data")->markdown()->toHtmlString())
+                ->label(fn (array $state) => str("Parse access for **{$state['name']}**")->markdown()->toHtmlString())
                 ->icon('heroicon-o-bolt')
                 ->color(Color::Green)
                 ->size(ActionSize::Small)
@@ -278,7 +272,7 @@ class ParseAccessSchema extends Forms\Components\Grid
         };
     }
 
-    public function generateMoreOptionsSections(): Forms\Components\Section
+    protected function generateMoreOptionsSections(): Forms\Components\Section
     {
         return Forms\Components\Section::make('More options for stage')
             ->description('Additional options for the stage configuration')
@@ -289,42 +283,43 @@ class ParseAccessSchema extends Forms\Components\Grid
             ->iconColor(Color::Blue)
             ->iconSize(IconSize::Large)
             ->schema([
-                Forms\Components\Grid::make()->schema([
-                    $this->getStatusToggleOptionComponent('options.bash_aliases.insert')
-                        ->label('Insert bash aliases')
-                        ->helperText('Insert bash aliases to `.bash_aliases` file')
-                        ->reactive(),
-
-                    Forms\Components\Fieldset::make('bash_aliases_options')
-                        ->label('Bash aliases')
-                        ->statePath('options.bash_aliases')
-                        ->visible(fn (Forms\Get $get) => $get('options.bash_aliases.insert'))
-                        ->columns(1)
-                        ->columnSpan(1)
-                        ->schema([
-                            $this->getStatusToggleOptionComponent('artisanCompletion')->label('Artisan completion'),
-                            $this->getStatusToggleOptionComponent('artisanAliases')->label('Artisan aliases'),
-                            $this->getStatusToggleOptionComponent('composerAlias')->label('Composer alias'),
-                            $this->getStatusToggleOptionComponent('folderAliases')->label('Folder aliases'),
-                        ]),
-                ]),
+                $this->getBashAliasesOptionsSection(),
             ]);
     }
 
-    public function generateDeployFileDownloadSection(): Forms\Components\Section
+    protected function getBashAliasesOptionsSection(): Forms\Components\Grid
+    {
+        return Forms\Components\Grid::make()->schema([
+            $this->getStatusToggleOptionComponent('options.bash_aliases.insert')
+                ->label('Insert bash aliases')
+                ->helperText('Insert bash aliases to `.bash_aliases` file')
+                ->reactive(),
+
+            Forms\Components\Fieldset::make('bash_aliases_options')
+                ->label('Bash aliases')
+                ->statePath('options.bash_aliases')
+                ->visible(fn (Forms\Get $get) => $get('options.bash_aliases.insert'))
+                ->columns(1)
+                ->columnSpan(1)
+                ->schema([
+                    $this->getStatusToggleOptionComponent('artisanCompletion')->label('Artisan completion'),
+                    $this->getStatusToggleOptionComponent('artisanAliases')->label('Artisan aliases'),
+                    $this->getStatusToggleOptionComponent('composerAlias')->label('Composer alias'),
+                    $this->getStatusToggleOptionComponent('folderAliases')->label('Folder aliases'),
+                ]),
+        ]);
+    }
+
+    protected function generateDeployFileDownloadSection(): Forms\Components\Section
     {
         return Forms\Components\Section::make(fn (Forms\Get $get) => str("Generated `deploy.php` file for **{$get('name')}** stage")->markdown()->toHtmlString())
             ->description('You can download the generated `deploy.php` file and use it later')
             ->visible(function (Forms\Get $get, HasParserInfo $livewire) {
                 $defaultState = $livewire->getParseStatusForStage($get('name')) && $this->sectionBasedOnDataCanBeVisible($get);
 
-                if (is_null($get('../../ci_cd_options.template_group'))) {
-                    return $defaultState;
-                }
+                $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup($get('../../ci_cd_options.template_group'));
 
-                $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($get('../../ci_cd_options.template_group'), $get('../../ci_cd_options.template_key'));
-
-                return $defaultState && (is_null($templateInfo) || $templateInfo->group->isBackend());
+                return $defaultState && (is_null($templateGroup) || $templateGroup->isBackend());
             })
             ->icon('heroicon-o-document-text')
             ->iconColor(Color::Fuchsia)
@@ -371,7 +366,7 @@ class ParseAccessSchema extends Forms\Components\Grid
             });
     }
 
-    public function generateParsedResultSection(): Forms\Components\Section
+    protected function generateParsedResultSection(): Forms\Components\Section
     {
         return Forms\Components\Section::make('Parse result')
             ->description('Please check the parsed data and confirm it')
@@ -408,23 +403,11 @@ class ParseAccessSchema extends Forms\Components\Grid
                                 $livewire->getSMTPFieldset(),
                             ]),
                     ]),
-
-                    Forms\Components\Checkbox::make('access_is_correct')
-                        ->label('I agree that the access data is correct')
-                        ->accepted()
-                        ->disabled()
-                        ->live()
-                        ->visible(fn () => $this->isConfirmationCheckboxVisible())
-                        ->columnSpanFull()
-                        ->validationMessages([
-                            'accepted' => 'Accept this field',
-                        ])
-                        ->required(),
                 ];
             });
     }
 
-    public function generateServerConnectionSection(): Forms\Components\Section
+    protected function generateServerConnectionSection(): Forms\Components\Section
     {
         return Forms\Components\Section::make('Server connection')
             ->description('Check the SSH connection to the server and retrieve server info')
@@ -456,7 +439,6 @@ class ParseAccessSchema extends Forms\Components\Grid
                         ]),
 
                     Forms\Components\Actions::make([
-                        $this->getTestSshButton(),
                         $this->getSshConnectionInfoButton(),
                     ])->columnSpanFull()->alignCenter(),
 
@@ -478,13 +460,17 @@ class ParseAccessSchema extends Forms\Components\Grid
 
                                 Forms\Components\Grid::make(1)->columnSpan(1)->schema([
                                     Forms\Components\TextInput::make('options.base_dir_pattern')
+                                        ->label('Deploy folder')
                                         ->required(),
                                     Forms\Components\TextInput::make('options.home_folder')
+                                        ->label('Home folder')
                                         ->required(),
                                     Forms\Components\TextInput::make('options.bin_php')
+                                        ->label('bin/php')
                                         ->visible($isBackend)
                                         ->required($isBackend),
                                     Forms\Components\TextInput::make('options.bin_composer')
+                                        ->label('bin/composer')
                                         ->visible($isBackend)
                                         ->required($isBackend),
                                 ]),
@@ -504,177 +490,88 @@ class ParseAccessSchema extends Forms\Components\Grid
         return $this->tap(fn () => $this->showMoreConfigurationSection = $callback);
     }
 
-    protected function connectToServer(array $server, array $sshOptions = []): bool|SSH2
-    {
-        $ssh = new SSH2($server['host'], $server['port'] ?? 22);
-
-        if (data_get($sshOptions, 'use_custom_ssh_key', false)) {
-            $privateKey = data_get($sshOptions, 'private_key');
-            if (empty($privateKey)) {
-                Notification::make()->title('Private key is empty')->danger()->send();
-
-                return false;
-            }
-
-            $key = PublicKeyLoader::load(
-                key: $privateKey,
-                password: data_get($sshOptions, 'private_key_password') ?: false
-            );
-        } else {
-            $key = data_get($server, 'password');
-        }
-
-        if ($ssh->login($server['login'], $key)) {
-            return $ssh;
-        }
-
-        return false;
-    }
-
-    protected function getTestSshButton(): Forms\Components\Actions\Action
-    {
-        return Forms\Components\Actions\Action::make('test_ssh')
-            ->label('Check SSH connection')
-            ->icon('heroicon-o-key')
-            ->disabled(fn (Forms\Get $get) => empty($get('accessInfo.server.password')) && empty($get('options.ssh.private_key')))
-            ->action(function (Forms\Get $get, Forms\Set $set) {
-                // reset data
-                $set('server_connection_result', null);
-                $set('ssh_connected', false);
-
-                $server = $get('accessInfo.server');
-                $sshOptions = $get('options.ssh');
-
-                $ssh = $this->connectToServer($server, $sshOptions);
-
-                if (!$ssh) {
-                    Notification::make()->title('SSH connection failed')->danger()->send();
-
-                    return;
-                }
-
-                $set('ssh_connected', true);
-
-                Notification::make()->title('SSH connection successful')->success()->send();
-            });
-    }
-
     protected function getSshConnectionInfoButton(): Forms\Components\Actions\Action
     {
         return Forms\Components\Actions\Action::make('fetch_server_info')
             ->label('Fetch server info')
-            ->disabled(fn (Forms\Get $get) => !$get('ssh_connected'))
+            ->disabled(fn (Forms\Get $get) => empty($get('accessInfo.server.password')) && empty($get('options.ssh.private_key')))
             ->color(Color::Green)
             ->icon('heroicon-o-server')
             ->action(function (Forms\Get $get, Forms\Set $set, DeployConfigurator $livewire) {
-                $server = $get('accessInfo.server');
-                $sshOptions = $get('options.ssh');
+                // reset data
+                $set('server_connection_result', null);
+                $set('ssh_connected', false);
 
-                $ssh = $this->connectToServer($server, $sshOptions);
+                $isTest = data_get($livewire, 'data.projectInfo.is_test');
 
-                if (!$ssh) {
-                    Notification::make()->title('SSH connection failed')->danger()->send();
-                    $set('ssh_connected', false);
+                $serverDetailParser = new ServerDetailParser(
+                    $server = new Server($get('accessInfo.server')),
+                    SshOptions::makeFromArray($get('options.ssh') ?: []),
+                );
+
+                try {
+                    $serverDetailParser->establishSSHConnection();
+                } catch (DomainException $exception) {
+                    Notification::make()
+                        ->danger()
+                        ->title('Failed to establish SSH connection')
+                        ->body($exception->getMessage())
+                        ->send();
 
                     return;
                 }
 
-                $ssh->enableQuietMode();
+                $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup($get('../../ci_cd_options.template_group'));
+                $isBackend = (is_null($templateGroup) || $templateGroup->isBackend());
 
-                $templateInfo = ($group = $get('../../ci_cd_options.template_group'))
-                    ? (new CiCdTemplateRepository())->getTemplateInfo($group, $get('../../ci_cd_options.template_key'))
-                    : null;
+                $serverDetailParser->setIsBackendServer($isBackend);
+                $serverDetailParser->parse();
 
-                $isBackend = (is_null($templateInfo) || $templateInfo->group->isBackend());
+                $parseResult = $serverDetailParser->getParseResult();
 
-                $homeFolder = str($ssh->exec('echo $HOME'))->trim()->rtrim('/')->value();
+                $testFolder = $isTest ? '/test' : '';
 
-                if ($isBackend) {
-                    /** @var Collection $paths */
-                    $paths = str($ssh->exec('whereis php php8.2 composer'))
-                        ->explode(PHP_EOL)
-                        ->mapWithKeys(function ($pathInfo, $line) {
-                            $binType = Str::of($pathInfo)->before(':')->trim()->value();
-                            $all = Str::of($pathInfo)->after("{$binType}:")->ltrim()->explode(' ');
-                            $binPath = $all->first();
+                // set server details options
+                $domain = str($server->domain)->after('://')->value();
+                $baseDir = in_array($get('name'), ['dev', 'stage'])
+                    ? "{$parseResult['homeFolderPath']}/web/{$domain}/public_html"
+                    : "{$parseResult['homeFolderPath']}/{$domain}/www";
 
-                            if (!$binType || !$binPath) {
-                                return [$line => null];
-                            }
-
-                            if (Str::startsWith($binType, 'php')) {
-                                $all = $all->reject(fn ($path) => Str::contains($path, ['-', '.gz', 'man']));
-                            }
-
-                            return [
-                                $binType => [
-                                    'bin' => $binPath,
-                                    'all' => $all->map(fn ($path) => "{$path}")->implode('; '),
-                                ],
-                            ];
-                        })
-                        ->filter();
-
-                    $phpV = '-';
-                    $composerV = '-';
-
-                    $phpInfo = $paths->get('php8.2', $paths->get('php'));
-                    if (empty($phpInfo['bin'])) {
-                        $phpVOutput = 'PHP not found';
-                    } else {
-                        $binPhp = $phpInfo['bin'];
-                        $phpVOutput = $ssh->exec($binPhp . ' -v');
-
-                        $phpV = preg_match('/PHP (\d+\.\d+\.\d+)/', $phpVOutput, $matches) ? $matches[1] : '-';
-
-                        if ($binComposer = $paths->get('composer')['bin'] ?? null) {
-                            $composerVOutput = $ssh->exec("{$binPhp} {$binComposer} -V");
-
-                            $composerV = preg_match('/Composer (?:version )?(\d+\.\d+\.\d+)/', $composerVOutput, $matches) ? $matches[1] : '-';
-                        } else {
-                            $composerVOutput = 'Composer not found';
-                        }
-                    }
-                }
-                $info = collect([
-                    "home folder: {$homeFolder}",
+                $newOptions = [
+                    'base_dir_pattern' => $baseDir . $testFolder,
+                    'home_folder' => $parseResult['homeFolderPath'] . $testFolder,
                     ...($isBackend ? [
+                        'bin_php' => $parseResult['phpInfo']['bin'],
+                        'bin_composer' => "{$parseResult['phpInfo']['bin']} " . collect($parseResult['paths'])->get('composer')['bin'],
+                    ] : [
+                        'bin_php' => null,
+                        'bin_composer' => null,
+                    ]),
+                ];
+
+                foreach ($newOptions as $key => $newOption) {
+                    $set("options.{$key}", $newOption);
+                }
+
+                $info = collect([
+                    "deploy folder: {$baseDir}",
+                    "home folder: {$parseResult['homeFolderPath']}",
+                    ...($serverDetailParser->isBackend() ? [
                         "<hr>",
                         "bin paths:",
-                        ...$paths->map(fn ($path, $type) => "{$type}: {$path['bin']}"),
+                        ...collect($parseResult['paths'])->map(fn ($path, $type) => "{$type}: {$path['bin']}"),
                         "<hr>",
-                        "all php bins: {$phpInfo['all']}",
+                        "all php bins: {$parseResult['phpInfo']['all']}",
                         "<hr>",
-                        "php: ({$phpV})",
-                        $phpVOutput,
+                        "php: ({$parseResult['phpVersion']})",
+                        $parseResult['phpOutput'],
                         "<hr>",
-                        "composer: ({$composerV})",
-                        $composerVOutput,
+                        "composer: ({$parseResult['composerVersion']})",
+                        $parseResult['composerOutput'],
                         "<hr>",
                     ] : []),
                 ])->implode('<br>');
-
                 $set('server_connection_result', $info);
-
-                $testFolder = data_get($livewire, 'data.projectInfo.is_test') ? '/test' : '';
-
-                // set server details options
-                $domain = str($server['domain'])->replace(['https://', 'http://'], '')->value();
-
-                $baseDir = in_array($get('name'), ['dev', 'stage'])
-                    ? "{$homeFolder}/web/{$domain}/public_html"
-                    : "{$homeFolder}/{$domain}/www";
-                $set('options.base_dir_pattern', $baseDir . $testFolder);
-                $set('options.home_folder', $homeFolder . $testFolder);
-
-                if ($isBackend) {
-                    $set('options.bin_php', $phpInfo['bin']);
-                    $set('options.bin_composer', "{$phpInfo['bin']} {$paths->get('composer')['bin']}");
-                } else {
-                    $set('options.bin_php', null);
-                    $set('options.bin_composer', null);
-                }
-
                 Notification::make()->title('Server info fetched')->success()->send();
             });
     }
