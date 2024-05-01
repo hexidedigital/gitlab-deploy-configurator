@@ -4,12 +4,14 @@ namespace App\Domains\DeployConfigurator\ContentGenerators;
 
 use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Domains\DeployConfigurator\Data\CiCdOptions;
+use App\Domains\DeployConfigurator\Data\ProjectDetails;
 use App\Domains\DeployConfigurator\Data\TemplateInfo;
 
 class GitlabCiCdYamlGenerator
 {
     public function __construct(
         private readonly CiCdOptions $ciCdOptions,
+        private readonly ProjectDetails $projectDetails,
     ) {
     }
 
@@ -20,6 +22,7 @@ class GitlabCiCdYamlGenerator
         return view('gitlab-templates.gitlab-ci-yml', [
             'templateInfo' => $templateInfo,
             'ciCdOptions' => $this->ciCdOptions,
+            'projectDetails' => $this->projectDetails,
             'variables' => $this->getVariables($templateInfo),
         ])->render();
     }
@@ -32,7 +35,7 @@ class GitlabCiCdYamlGenerator
             $variables['NODE_VERSION'] = ['value' => $this->ciCdOptions->node_version];
         }
 
-        if ($templateInfo->group->isFrontend()) {
+        if ($templateInfo->group->isFrontend() && !$templateInfo->usesPM2()) {
             $variables['BUILD_FOLDER'] = ['value' => $this->ciCdOptions->build_folder];
         }
 

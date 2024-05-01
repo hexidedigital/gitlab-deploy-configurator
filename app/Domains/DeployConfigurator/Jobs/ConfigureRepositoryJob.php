@@ -333,7 +333,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             [
                 // "action" => "create",
                 "file_path" => ".gitlab-ci.yml",
-                "content" => (new GitlabCiCdYamlGenerator($this->ciCdOptions))->render(),
+                "content" => (new GitlabCiCdYamlGenerator($this->ciCdOptions, $this->projectDetails))->render(),
             ],
             [
                 // "action" => "create",

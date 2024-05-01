@@ -13,8 +13,8 @@ readonly class CiCdOptions implements Arrayable
 
     public function __construct(
         public string $template_group,
-        public ?string $template_key,
-        public array $enabled_stages,
+        public ?string $template_key = null,
+        public array $enabled_stages = [],
         public ?string $node_version = null,
         public ?string $build_folder = null,
         protected Collection $extra = new Collection(),
@@ -26,7 +26,7 @@ readonly class CiCdOptions implements Arrayable
         return new self(
             template_group: data_get($array, 'template_group'),
             template_key: data_get($array, 'template_key'),
-            enabled_stages: data_get($array, 'enabled_stages'),
+            enabled_stages: data_get($array, 'enabled_stages') ?: [],
             node_version: data_get($array, 'node_version'),
             build_folder: data_get($array, 'build_folder'),
             extra: new Collection(data_get($array, 'extra', [])),
@@ -60,7 +60,7 @@ readonly class CiCdOptions implements Arrayable
             'enabled_stages' => $this->enabled_stages,
             'node_version' => $this->node_version,
             'build_folder' => $this->build_folder,
-            'extra' => $this->extra,
+            'extra' => $this->extra->toArray(),
         ];
     }
 }

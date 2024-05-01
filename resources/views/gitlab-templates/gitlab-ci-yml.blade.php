@@ -17,3 +17,9 @@ variables:
 
 @endforeach
 @endif
+@if($templateInfo->group->isBackend() && $projectDetails->codeInfo->frontendBuilder === 'laravel-mix')
+
+Build:
+  script:
+    - npm run prod
+@endif
