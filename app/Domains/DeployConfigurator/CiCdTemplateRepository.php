@@ -51,7 +51,7 @@ class CiCdTemplateRepository
         ];
     }
 
-    public function getTemplateInfo(string $group, ?string $key): ?TemplateInfo
+    public function getTemplateInfo(?string $group, ?string $key): ?TemplateInfo
     {
         return collect($this->getTemplatesForGroup($group))->get($key);
     }

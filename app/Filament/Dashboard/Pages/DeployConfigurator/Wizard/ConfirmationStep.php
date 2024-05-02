@@ -32,8 +32,6 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                 }
             })
             ->schema([
-                Forms\Components\Toggle::make('refresh')->live(),
-
                 Forms\Components\Section::make('Summary')
                     ->schema(function (DeployConfigurator $livewire, Forms\Get $get) {
                         $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
@@ -48,11 +46,11 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                                 ->schema([
                                     Forms\Components\Placeholder::make('placeholder.ci_cd_options.template_group')
                                         ->label('CI/CD template type')
-                                        ->content($templateInfo->group->nameAndIcon()),
+                                        ->content(fn () => $templateInfo?->group->nameAndIcon()),
 
                                     Forms\Components\Placeholder::make('placeholder.ci_cd_options.template_key')
                                         ->label('CI/CD template version')
-                                        ->content($templateInfo->name),
+                                        ->content(fn () => $templateInfo?->name),
                                 ]),
 
                             Forms\Components\Repeater::make('stages')
@@ -80,11 +78,11 @@ class ConfirmationStep extends Forms\Components\Wizard\Step
                                                                 ->content(fn (Forms\Get $get) => $get('options.home_folder')),
                                                             Forms\Components\Placeholder::make('placeholder.options.bin_php')
                                                                 ->label('bin/php')
-                                                                ->visible($templateInfo->group->isBackend())
+                                                                ->visible(fn () => $templateInfo?->group->isBackend())
                                                                 ->content(fn (Forms\Get $get) => $get('options.bin_php')),
                                                             Forms\Components\Placeholder::make('placeholder.options.bin_composer')
                                                                 ->label('bin/composer')
-                                                                ->visible($templateInfo->group->isBackend())
+                                                                ->visible(fn () => $templateInfo?->group->isBackend())
                                                                 ->content(fn (Forms\Get $get) => $get('options.bin_composer')),
                                                         ]),
                                                 ]),
