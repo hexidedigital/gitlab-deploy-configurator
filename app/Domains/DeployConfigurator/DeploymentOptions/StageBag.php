@@ -38,7 +38,7 @@ final class StageBag
     public function get(string $name): Stage
     {
         if (!isset($this->stages[$name])) {
-            throw new GitlabDeployException("Stage [$name] is not defined");
+            throw new GitlabDeployException("Stage [{$name}] is not defined");
         }
 
         return $this->stages[$name];

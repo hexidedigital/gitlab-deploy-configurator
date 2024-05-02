@@ -6,7 +6,6 @@ use App\Domains\DeployConfigurator\CiCdTemplateRepository;
 use App\Filament\Dashboard\Pages\DeployConfigurator;
 use Filament\Forms;
 use Filament\Support\Exceptions\Halt;
-use Illuminate\Support\HtmlString;
 
 class ConfirmationStep extends Forms\Components\Wizard\Step
 {

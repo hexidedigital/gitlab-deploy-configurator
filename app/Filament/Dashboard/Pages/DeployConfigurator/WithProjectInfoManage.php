@@ -163,6 +163,7 @@ trait WithProjectInfoManage
             ];
         }
     }
+
     protected function parseTemplateForFrontend(ProjectData $project): array
     {
         if ($project->hasEmptyRepository()) {

@@ -6,11 +6,11 @@ namespace App\Domains\DeployConfigurator;
 
 use App\Domains\DeployConfigurator\DeploymentOptions\Configurations;
 use App\Domains\DeployConfigurator\DeploymentOptions\Stage;
-use HexideDigital\GitlabDeploy\Exceptions\GitlabDeployException;
-use HexideDigital\GitlabDeploy\Gitlab\VariableBag;
 use App\Domains\DeployConfigurator\Helpers\Builders\ConfigurationBuilder;
 use App\Domains\DeployConfigurator\Helpers\Builders\ReplacementsBuilder;
 use App\Domains\DeployConfigurator\Helpers\Builders\VariableBagBuilder;
+use HexideDigital\GitlabDeploy\Exceptions\GitlabDeployException;
+use HexideDigital\GitlabDeploy\Gitlab\VariableBag;
 use HexideDigital\GitlabDeploy\Helpers\ParseConfiguration;
 use HexideDigital\GitlabDeploy\Helpers\Replacements;
 use Illuminate\Contracts\Container\BindingResolutionException;

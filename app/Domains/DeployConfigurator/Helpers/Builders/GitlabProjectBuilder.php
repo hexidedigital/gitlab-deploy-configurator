@@ -40,7 +40,6 @@ final class GitlabProjectBuilder
      */
     public function validate(?array $project): void
     {
-        /*todo - validate before create*/
         /** @var Collection<string, bool> $listOfEmptyOptions */
         $listOfEmptyOptions = collect([
             'gitlab' => empty($project),

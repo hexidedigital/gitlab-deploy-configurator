@@ -41,7 +41,6 @@ final class ReplacementsBuilder
         */
         $this->replacements->merge($this->stage->server->toReplacesArray());
 
-
         /*----------------------------------------------
         | step 2
         |-----------------------------------------------
@@ -64,22 +63,21 @@ final class ReplacementsBuilder
         );
         $this->replacements->merge($data);
 
-
         /*----------------------------------------------
         | step 3
         |-----------------------------------------------
         */
         $this->replacements->merge([
-            'DEPLOY_PHP_ENV' => <<<PHP
-\$CI_REPOSITORY_URL = "{{CI_REPOSITORY_URL}}";
-\$CI_COMMIT_REF_NAME = "{{CI_COMMIT_REF_NAME}}";
-\$BIN_PHP = "{{BIN_PHP}}";
-\$BIN_COMPOSER = "{{BIN_COMPOSER}}";
-\$DEPLOY_BASE_DIR = "{{DEPLOY_BASE_DIR}}";
-\$DEPLOY_SERVER = "{{DEPLOY_SERVER}}";
-\$DEPLOY_USER = "{{DEPLOY_USER}}";
-\$SSH_PORT = "{{SSH_PORT}}";
-PHP,
+            'DEPLOY_PHP_ENV' => <<<'PHP'
+                $CI_REPOSITORY_URL = "{{CI_REPOSITORY_URL}}";
+                $CI_COMMIT_REF_NAME = "{{CI_COMMIT_REF_NAME}}";
+                $BIN_PHP = "{{BIN_PHP}}";
+                $BIN_COMPOSER = "{{BIN_COMPOSER}}";
+                $DEPLOY_BASE_DIR = "{{DEPLOY_BASE_DIR}}";
+                $DEPLOY_SERVER = "{{DEPLOY_SERVER}}";
+                $DEPLOY_USER = "{{DEPLOY_USER}}";
+                $SSH_PORT = "{{SSH_PORT}}";
+                PHP,
         ]);
 
         /*----------------------------------------------
@@ -93,7 +91,7 @@ PHP,
 
         $this->replacements->merge([
             'IDENTITY_FILE' => $filePath,
-            'IDENTITY_FILE_PUB' => "$filePath.pub",
+            'IDENTITY_FILE_PUB' => "{$filePath}.pub",
 
             'remoteSshCredentials' => '-i "{{IDENTITY_FILE}}" -p {{SSH_PORT}} "{{DEPLOY_USER}}@{{DEPLOY_SERVER}}"',
             'remoteScpOptions' => '-i "{{IDENTITY_FILE}}" -P {{SSH_PORT}}',
