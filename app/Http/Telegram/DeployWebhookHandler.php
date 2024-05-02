@@ -77,9 +77,15 @@ class DeployWebhookHandler extends WebhookHandler
 
     public function handle(Request $request, TelegraphBot $bot): void
     {
+        // bot
+        // chat
+        // context
+        // message or callbackQuery
+
         try {
             parent::handle($request, $bot);
         } finally {
+            // force save filled data for context
             if (isset($this->chatContext)) {
                 $this->chatContext->save();
             }
