@@ -110,7 +110,7 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
                             'new_id' => $me['id'],
                         ]);
 
-                        $set('gitlab_token', '');
+                        $set('gitlab_token', Auth::user()->gitlab_token);
 
                         return;
                     }

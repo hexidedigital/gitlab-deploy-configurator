@@ -2,15 +2,12 @@
 
 use App\Filament\Dashboard\Pages\Register;
 use App\Settings\GeneralSettings;
-
 use Mockery\MockInterface;
 
 use function Pest\Livewire\livewire;
 
 beforeEach(function () {
-    GeneralSettings::fake([
-        'released' => true,
-    ]);
+    GeneralSettings::fake(['released' => true]);
 
     $this->gitlabUserData = [
         // we set only required fields
