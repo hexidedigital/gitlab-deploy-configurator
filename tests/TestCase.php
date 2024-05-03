@@ -10,6 +10,16 @@ use Mockery\MockInterface;
 
 abstract class TestCase extends BaseTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config([
+            'services.gitlab.token' => 'some_secret_token',
+            'services.gitlab.url' => 'https://gitlab.hexide-digital.com',
+        ]);
+    }
+
     public function mockGitlabManagerUsing(Closure $callback, string $authenticatesWithGitLabToken = 'some_secret_token'): self
     {
         $this->mock(GitLabService::class, function (MockInterface $mock) use ($authenticatesWithGitLabToken, $callback) {
@@ -20,5 +30,10 @@ abstract class TestCase extends BaseTestCase
         });
 
         return $this;
+    }
+
+    public function setUpTelegramToWork(): void
+    {
+        //
     }
 }

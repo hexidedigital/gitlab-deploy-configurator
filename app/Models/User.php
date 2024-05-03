@@ -43,6 +43,8 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
             'gitlab_token' => 'encrypted',
             'role' => Role::class,
             'telegram_user' => 'array',
+            'telegram_id' => 'int',
+            'is_telegram_enabled' => 'bool',
         ];
     }
 

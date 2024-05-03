@@ -110,6 +110,7 @@ class DeployWebhookHandler extends WebhookHandler
         }
     }
 
+    /** @noinspection PhpUnhandledExceptionInspection */
     protected function onFailure(Throwable $throwable): void
     {
         if ($throwable instanceof Halt) {
@@ -126,11 +127,17 @@ class DeployWebhookHandler extends WebhookHandler
             throw $throwable;
         }
 
-        report($throwable);
+        if (app()->runningUnitTests()) {
+            throw $throwable;
+        } else {
+            report($throwable);
+        }
 
-        $this->chat->message('Sorry man, I failed 🤕')->send();
+        if (isset($this->chat)) {
+            $this->chat->message('Sorry man, I failed 🤕')->send();
+        }
 
-        if ($this->user->isRoot()) {
+        if (isset($this->user) && $this->user->isRoot()) {
             $this->chat->message($throwable->getMessage())->send();
         }
     }

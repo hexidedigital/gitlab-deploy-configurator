@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\Role;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -29,6 +30,14 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+            'role' => Role::Developer,
+            'gitlab_id' => fake()->unique()->randomNumber(),
+            'gitlab_token' => Str::random(10),
+            'avatar_url' => fake()->imageUrl(),
+            'is_telegram_enabled' => false,
+            'telegram_id' => null,
+            'telegram_token' => null,
+            'telegram_user' => null,
         ];
     }
 
@@ -39,6 +48,14 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
+        ]);
+    }
+
+    public function telegramId(int $id): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_telegram_enabled' => true,
+            'telegram_id' => $id,
         ]);
     }
 }

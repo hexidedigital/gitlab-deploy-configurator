@@ -15,13 +15,13 @@ trait StartCommand
         // Check if the user is already connected
         $chatUser = User::where('telegram_id', $fromUser->id())->first();
         if (!$chatUser) {
+            $token = $this->extractToken();
+
             if (!app(GeneralSettings::class)->released) {
                 $this->chat->message('💥 Registration is currently disabled. Wait for the release 😉')->send();
 
                 return;
             }
-
-            $token = $this->extractToken();
 
             $this->connectTelegramAccount($token);
 
