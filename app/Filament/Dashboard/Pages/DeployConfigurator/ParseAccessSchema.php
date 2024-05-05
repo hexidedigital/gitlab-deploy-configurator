@@ -105,19 +105,19 @@ class ParseAccessSchema extends Forms\Components\Grid
                                 }),
 
                             $this->generateParsedResultSection()
-                                ->columnSpanFull()
+                                ->columnSpan(6)
                                 ->collapsed(),
 
                             $this->generateServerConnectionSection()
-                                ->columnSpanFull()
+                                ->columnSpan(6)
                                 ->collapsed(),
 
                             $this->generateMoreOptionsSections()
-                                ->columnSpanFull()
+                                ->columnSpan(6)
                                 ->collapsed(),
 
                             $this->generateDeployFileDownloadSection()
-                                ->columnSpanFull()
+                                ->columnSpan(6)
                                 ->collapsed(),
                         ]),
                 ];
