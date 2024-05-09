@@ -2,39 +2,75 @@
 
 namespace App\Filament\Dashboard\Pages\DeployConfigurator;
 
+use Illuminate\Support\Collection;
+
 trait InteractsWithParser
 {
     /**
      * @var array<string, bool>
      */
-    public array $parsed = [];
+    public array $stageParsed = [];
 
-    public function getParsedStatuses(): array
+    /**
+     * @var array<string, bool>
+     */
+    public array $stageConnections = [];
+
+    public function resetStatusForStage(string $stageName): void
     {
-        return $this->parsed;
+        $this->setParseStatusForStage($stageName, false);
+        $this->setConnectionStatusForStage($stageName, false);
+    }
+
+    public function isAllAccessParsed(): bool
+    {
+        return $this->checkStatus(collect($this->stageParsed));
     }
 
     public function setParseStatusForStage(string $stageName, bool $status): void
     {
         $this->fill([
-            'parsed.' . $stageName => $status,
+            'stageParsed.' . $stageName => $status,
         ]);
     }
 
     public function getParseStatusForStage(?string $stageName): bool
     {
-        return $this->parsed[$stageName] ?? false;
+        return $this->stageParsed[$stageName] ?? false;
     }
 
-    public function hasParsedStage(): bool
+    public function hasOneParsedStage(): bool
     {
-        return collect($this->parsed)->contains(true);
+        return collect($this->stageParsed)->contains(true);
     }
 
-    protected function resetParsedState(): void
+    public function isAllConnectionCorrect(): bool
+    {
+        return $this->checkStatus(collect($this->stageConnections));
+    }
+
+    public function setConnectionStatusForStage(string $stageName, bool $status): void
+    {
+        $this->fill([
+            'stageConnections.' . $stageName => $status,
+        ]);
+    }
+
+    public function getConnectionStatusForStage(?string $stageName): bool
+    {
+        return $this->stageConnections[$stageName] ?? false;
+    }
+
+    protected function resetParserState(): void
     {
         $this->reset([
-            'parsed',
+            'stageParsed',
+            'stageConnections',
         ]);
+    }
+
+    private function checkStatus(Collection $items): bool
+    {
+        return $items->isEmpty() || $items->reject()->isNotEmpty();
     }
 }

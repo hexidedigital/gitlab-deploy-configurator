@@ -23,13 +23,14 @@ class ParseAccessStep extends Forms\Components\Wizard\Step
         $this
             ->icon('heroicon-o-cog-6-tooth')
             ->afterValidation(function (HasParserInfo $livewire) {
-                $parsed = collect($livewire->getParsedStatuses());
-
-                $isNotParsedAllAccesses = $parsed->isEmpty()
-                    || $parsed->reject()->isNotEmpty();
-
-                if ($isNotParsedAllAccesses) {
+                if ($livewire->isAllAccessParsed()) {
                     Notification::make()->title('You have unresolved access data')->danger()->send();
+
+                    throw new Halt();
+                }
+
+                if ($livewire->isAllConnectionCorrect()) {
+                    Notification::make()->title('You need to connect to servers')->danger()->send();
 
                     throw new Halt();
                 }

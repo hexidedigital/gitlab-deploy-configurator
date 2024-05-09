@@ -40,6 +40,10 @@ class ServerDetailParser
 
         $key = $this->resolveKey();
 
+        if (empty($key)) {
+            throw new DomainException('Please, provide a private key or password');
+        }
+
         if (!$this->ssh->login($this->server->login, $key)) {
             throw new DomainException('SSH connection failed');
         }

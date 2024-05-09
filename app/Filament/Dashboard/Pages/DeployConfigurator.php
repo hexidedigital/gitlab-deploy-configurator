@@ -213,7 +213,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
             'emptyRepo',
         ]);
 
-        $this->resetParsedState();
+        $this->resetParserState();
 
         // reset some form data to defaults
         $sampleFormData = new SampleFormData();

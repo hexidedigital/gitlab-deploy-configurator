@@ -159,13 +159,11 @@ class ParseAccessSchema extends Forms\Components\Grid
                         $set('server_connection_result', null);
                         $set('ssh_connected', false);
 
-                        $livewire->setParseStatusForStage($get('name'), false);
+                        $livewire->resetStatusForStage($get('name'));
 
-                        if (!$state) {
-                            return;
+                        if ($state) {
+                            $this->tryToParseAccessInput($get('name'), $state);
                         }
-
-                        $this->tryToParseAccessInput($get('name'), $state);
                     }),
             ]);
     }
@@ -176,7 +174,7 @@ class ParseAccessSchema extends Forms\Components\Grid
             ->description('If you want, you can download the configuration file for all stages at once')
             // has at least one parsed stage
             ->visible(function (HasParserInfo $livewire, Forms\Get $get) {
-                $defaultState = $livewire->hasParsedStage();
+                $defaultState = $livewire->hasOneParsedStage();
 
                 $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup($get('ci_cd_options.template_group'));
 
@@ -385,6 +383,8 @@ class ParseAccessSchema extends Forms\Components\Grid
                         $set('access_is_correct', true);
 
                         Notification::make()->title('Stage data accepted')->success()->send();
+
+                        $this->fetchServerInfo($set, $livewire, $get);
                     }),
             ])
             ->schema(function (HasParserInfo $livewire) {
@@ -498,82 +498,88 @@ class ParseAccessSchema extends Forms\Components\Grid
             ->color(Color::Green)
             ->icon('heroicon-o-server')
             ->action(function (Forms\Get $get, Forms\Set $set, DeployConfigurator $livewire) {
-                // reset data
-                $set('server_connection_result', null);
-                $set('ssh_connected', false);
-
-                $isTest = data_get($livewire, 'data.projectInfo.is_test');
-
-                $serverDetailParser = new ServerDetailParser(
-                    $server = new Server($get('accessInfo.server')),
-                    SshOptions::makeFromArray($get('options.ssh') ?: []),
-                );
-
-                try {
-                    $serverDetailParser->establishSSHConnection();
-                } catch (DomainException $exception) {
-                    Notification::make()
-                        ->danger()
-                        ->title('Failed to establish SSH connection')
-                        ->body($exception->getMessage())
-                        ->send();
-
-                    return;
-                }
-
-                $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup($get('../../ci_cd_options.template_group'));
-                $isBackend = (is_null($templateGroup) || $templateGroup->isBackend());
-
-                $serverDetailParser->setIsBackendServer($isBackend);
-                $serverDetailParser->parse();
-
-                $parseResult = $serverDetailParser->getParseResult();
-
-                $testFolder = $isTest ? '/test' : '';
-
-                // set server details options
-                $domain = str($server->domain)->after('://')->value();
-                $baseDir = in_array($get('name'), ['dev', 'stage'])
-                    ? "{$parseResult['homeFolderPath']}/web/{$domain}/public_html"
-                    : "{$parseResult['homeFolderPath']}/{$domain}/www";
-
-                $newOptions = [
-                    'base_dir_pattern' => $baseDir . $testFolder,
-                    'home_folder' => $parseResult['homeFolderPath'] . $testFolder,
-                    ...($isBackend ? [
-                        'bin_php' => $parseResult['phpInfo']['bin'],
-                        'bin_composer' => "{$parseResult['phpInfo']['bin']} " . collect($parseResult['paths'])->get('composer')['bin'],
-                    ] : [
-                        'bin_php' => null,
-                        'bin_composer' => null,
-                    ]),
-                ];
-
-                foreach ($newOptions as $key => $newOption) {
-                    $set("options.{$key}", $newOption);
-                }
-
-                $info = collect([
-                    "deploy folder: {$baseDir}",
-                    "home folder: {$parseResult['homeFolderPath']}",
-                    ...($serverDetailParser->isBackend() ? [
-                        "<hr>",
-                        "bin paths:",
-                        ...collect($parseResult['paths'])->map(fn ($path, $type) => "{$type}: {$path['bin']}"),
-                        "<hr>",
-                        "all php bins: {$parseResult['phpInfo']['all']}",
-                        "<hr>",
-                        "php: ({$parseResult['phpVersion']})",
-                        $parseResult['phpOutput'],
-                        "<hr>",
-                        "composer: ({$parseResult['composerVersion']})",
-                        $parseResult['composerOutput'],
-                        "<hr>",
-                    ] : []),
-                ])->implode('<br>');
-                $set('server_connection_result', $info);
-                Notification::make()->title('Server info fetched')->success()->send();
+                $this->fetchServerInfo($set, $livewire, $get);
             });
+    }
+
+    protected function fetchServerInfo(Forms\Set $set, HasParserInfo $livewire, Forms\Get $get): void
+    {
+        // reset data
+        $set('server_connection_result', null);
+        $set('ssh_connected', false);
+
+        $isTest = data_get($livewire, 'data.projectInfo.is_test');
+
+        $serverDetailParser = new ServerDetailParser(
+            $server = new Server($get('accessInfo.server')),
+            SshOptions::makeFromArray($get('options.ssh') ?: []),
+        );
+
+        try {
+            $serverDetailParser->establishSSHConnection();
+        } catch (DomainException $exception) {
+            Notification::make()
+                ->danger()
+                ->title('Failed to establish SSH connection')
+                ->body($exception->getMessage())
+                ->send();
+
+            return;
+        }
+
+        $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup($get('../../ci_cd_options.template_group'));
+        $isBackend = (is_null($templateGroup) || $templateGroup->isBackend());
+
+        $serverDetailParser->setIsBackendServer($isBackend);
+        $serverDetailParser->parse();
+
+        $parseResult = $serverDetailParser->getParseResult();
+
+        $testFolder = $isTest ? '/test' : '';
+
+        // set server details options
+        $domain = str($server->domain)->after('://')->value();
+        $baseDir = in_array($get('name'), ['dev', 'stage'])
+            ? "{$parseResult['homeFolderPath']}/web/{$domain}/public_html"
+            : "{$parseResult['homeFolderPath']}/{$domain}/www";
+
+        $newOptions = [
+            'base_dir_pattern' => $baseDir . $testFolder,
+            'home_folder' => $parseResult['homeFolderPath'] . $testFolder,
+            ...($isBackend ? [
+                'bin_php' => $parseResult['phpInfo']['bin'],
+                'bin_composer' => "{$parseResult['phpInfo']['bin']} " . collect($parseResult['paths'])->get('composer')['bin'],
+            ] : [
+                'bin_php' => null,
+                'bin_composer' => null,
+            ]),
+        ];
+
+        foreach ($newOptions as $key => $newOption) {
+            $set("options.{$key}", $newOption);
+        }
+
+        $info = collect([
+            "deploy folder: {$baseDir}",
+            "home folder: {$parseResult['homeFolderPath']}",
+            ...($serverDetailParser->isBackend() ? [
+                "<hr>",
+                "bin paths:",
+                ...collect($parseResult['paths'])->map(fn ($path, $type) => "{$type}: {$path['bin']}"),
+                "<hr>",
+                "all php bins: {$parseResult['phpInfo']['all']}",
+                "<hr>",
+                "php: ({$parseResult['phpVersion']})",
+                $parseResult['phpOutput'],
+                "<hr>",
+                "composer: ({$parseResult['composerVersion']})",
+                $parseResult['composerOutput'],
+                "<hr>",
+            ] : []),
+        ])->implode('<br>');
+        $set('server_connection_result', $info);
+
+        Notification::make()->title('Server info fetched')->success()->send();
     }
 
     protected function isConfirmationCheckboxVisible(): bool
