@@ -1136,7 +1136,7 @@ class DeployWebhookHandler extends WebhookHandler
             } catch (DomainException $exception) {
                 $this->chat->message("Server connection result: ❌")->send();
 
-                $this->chat->markdown("I can't connect to the server. Please check the access data and try again.\n\n```\n{$exception->getMessage()}\n```")->send();
+                $this->chat->markdown("I can't connect to the server. Please check the access data and try again with command /retry.\n\n```\n{$exception->getMessage()}\n```")->send();
                 if ($sshOptions->useCustomSshKey || empty($server->password)) {
                     $this->chat->message('⚠ If you using private key to connect, use web version. Authorization with private key is not supported in telegram.')->send();
                 }
