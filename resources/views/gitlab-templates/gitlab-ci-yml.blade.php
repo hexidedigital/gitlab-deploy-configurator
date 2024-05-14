@@ -22,4 +22,15 @@ variables:
 Build:
   script:
     - npm run prod
+  artifacts:
+    paths:
+      - public/js
+      - public/css
+      - public/themes
+      #- public/ckeditor
+      #- public/vendor
+      - public/mix-manifest.json
+  rules:
+    - if: $CI_BUILD_STAGE != '0'
+
 @endif
