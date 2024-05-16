@@ -105,12 +105,10 @@ class ParseAccessSchema extends Forms\Components\Grid
                                 }),
 
                             $this->generateParsedResultSection()
-                                ->columnSpan(6)
-                                ->collapsed(),
+                                ->columnSpan(6),
 
                             $this->generateServerConnectionSection()
-                                ->columnSpan(6)
-                                ->collapsed(),
+                                ->columnSpan(6),
 
                             $this->generateMoreOptionsSections()
                                 ->columnSpan(6)
@@ -442,7 +440,7 @@ class ParseAccessSchema extends Forms\Components\Grid
                         $this->getSshConnectionInfoButton(),
                     ])->columnSpanFull()->alignCenter(),
 
-                    Forms\Components\Fieldset::make('Server details')
+                    Forms\Components\Grid::make()
                         ->columnSpanFull()
                         ->columns()
                         ->schema(function (Forms\Get $get) {
@@ -453,14 +451,17 @@ class ParseAccessSchema extends Forms\Components\Grid
                             $isBackend = (is_null($templateInfo) || $templateInfo->group->isBackend());
 
                             return [
-                                Forms\Components\Placeholder::make('server_connection_result')
-                                    ->label('Server info')
-                                    ->columnSpan(1)
-                                    ->content(fn (Forms\Get $get) => str($get('server_connection_result') ?: 'not fetched yet')->toHtmlString()),
+                                Forms\Components\Fieldset::make('Server info')->columns(1)->columnSpan(1)->schema([
+                                    Forms\Components\Placeholder::make('server_connection_result')
+                                        ->label('')
+                                        ->columnSpan(1)
+                                        ->content(fn (Forms\Get $get) => str($get('server_connection_result') ?: 'not fetched yet')->toHtmlString()),
+                                ]),
 
-                                Forms\Components\Grid::make(1)->columnSpan(1)->schema([
-                                    Forms\Components\TextInput::make('options.base_dir_pattern')
+                                Forms\Components\Fieldset::make('Paths for deploymet')->columns(1)->columnSpan(1)->schema([
+                                    Forms\Components\Textarea::make('options.base_dir_pattern')
                                         ->label('Deploy folder')
+                                        ->rows(2)
                                         ->required(),
                                     Forms\Components\TextInput::make('options.home_folder')
                                         ->label('Home folder')
@@ -560,21 +561,20 @@ class ParseAccessSchema extends Forms\Components\Grid
         }
 
         $info = collect([
-            "deploy folder: {$baseDir}",
-            "home folder: {$parseResult['homeFolderPath']}",
+            "<b>deploy folder:</b> {$baseDir}",
+            "<b>home folder:</b> {$parseResult['homeFolderPath']}",
             ...($serverDetailParser->isBackend() ? [
-                "<hr>",
-                "bin paths:",
-                ...collect($parseResult['paths'])->map(fn ($path, $type) => "{$type}: {$path['bin']}"),
-                "<hr>",
-                "all php bins: {$parseResult['phpInfo']['all']}",
-                "<hr>",
-                "php: ({$parseResult['phpVersion']})",
+                "",
+                "<hr><b>bin paths:</b>",
+                ...collect($parseResult['paths'])->map(fn ($path, $type) => "<b>{$type}:</b> {$path['bin']}"),
+                "",
+                "<hr><b>all php bins:</b> {$parseResult['phpInfo']['all']}",
+                "",
+                "<hr><b>php:</b> ({$parseResult['phpVersion']})",
                 $parseResult['phpOutput'],
-                "<hr>",
-                "composer: ({$parseResult['composerVersion']})",
+                "",
+                "<hr><b>composer:</b> ({$parseResult['composerVersion']})",
                 $parseResult['composerOutput'],
-                "<hr>",
             ] : []),
         ])->implode('<br>');
         $set('server_connection_result', $info);
