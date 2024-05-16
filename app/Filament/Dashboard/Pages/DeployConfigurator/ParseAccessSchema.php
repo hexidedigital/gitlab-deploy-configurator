@@ -155,7 +155,6 @@ class ParseAccessSchema extends Forms\Components\Grid
                         $set('access_is_correct', false);
 
                         $set('server_connection_result', null);
-                        $set('ssh_connected', false);
 
                         $livewire->resetStatusForStage($get('name'));
 
@@ -219,16 +218,18 @@ class ParseAccessSchema extends Forms\Components\Grid
                 ->color(Color::Green)
                 ->size(ActionSize::Small)
                 ->action(action: function (Forms\Get $get, Forms\Set $set, HasParserInfo $livewire) {
+                    $stageName = $get('name');
+
                     // reset data
                     $set('can_be_parsed', false);
                     $set('access_is_correct', false);
 
                     $set('server_connection_result', null);
-                    $set('ssh_connected', false);
+
+                    $livewire->setConnectionStatusForStage($stageName, false);
 
                     $configurations = $this->retrieveConfigurations();
 
-                    $stageName = $get('name');
                     $parser = $this->tryToParseAccessInput($stageName, $get('access_input'));
                     if (!$parser) {
                         return;
@@ -507,7 +508,8 @@ class ParseAccessSchema extends Forms\Components\Grid
     {
         // reset data
         $set('server_connection_result', null);
-        $set('ssh_connected', false);
+
+        $livewire->setConnectionStatusForStage($get('name'), false);
 
         $isTest = data_get($livewire, 'data.projectInfo.is_test');
 
@@ -527,6 +529,7 @@ class ParseAccessSchema extends Forms\Components\Grid
 
             return;
         }
+        $livewire->setConnectionStatusForStage($get('name'), true);
 
         $templateGroup = (new CiCdTemplateRepository())->getTemplateGroup($get('../../ci_cd_options.template_group'));
         $isBackend = (is_null($templateGroup) || $templateGroup->isBackend());
