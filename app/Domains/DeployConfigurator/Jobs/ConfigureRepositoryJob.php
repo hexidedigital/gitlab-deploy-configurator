@@ -382,10 +382,21 @@ class ConfigureRepositoryJob implements ShouldQueue
             return;
         }
 
+        // we try to use default branch for start, but when deploy branch exists, we use it as start
+        $startBranch = $this->gitlabProject->default_branch;
+
+        $branches = $this->gitLabService->gitLabManager()->repositories()->branches($this->gitlabProject->id);
+        $isBranchExists = collect($branches)->map(fn ($branch) => $branch['name'])->contains($this->currentStageInfo->name);
+        if ($isBranchExists) {
+            $startBranch = $this->currentStageInfo->name;
+
+            $this->logWriter->debug('Branch already exists, using it as default', ['branch' => $startBranch]);
+        }
+
         // otherwise, create commit with new files
         $commit = $this->gitLabService->gitLabManager()->repositories()->createCommit($this->gitlabProject->id, [
             "branch" => $this->currentStageInfo->name,
-            "start_branch" => $this->gitlabProject->default_branch,
+            "start_branch" => $startBranch,
             "commit_message" => "Configure deployment 🚀",
             "author_name" => "Deploy Configurator Bot",
             "author_email" => "deploy-configurator-bot@hexide-digital.com",

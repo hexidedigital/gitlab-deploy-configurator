@@ -120,7 +120,7 @@ class AppServiceProvider extends ServiceProvider
                             ->line('Project: ' . $event->projectData->name)
                             ->line('User: ' . $event->user->name)
                             ->line('Time: ' . now()->timezone('Europe/Kiev')->format('Y-m-d H:i:s'))
-                            ->escapedLine('Error: ' . $event->exception?->getMessage())
+                            ->line('Error: ' . $event->exception?->getMessage())
                             ->button('Telescope', route('telescope', 'exceptions'))
                             ->button('Log-viewer', route('log-viewer.index'))
                     )
