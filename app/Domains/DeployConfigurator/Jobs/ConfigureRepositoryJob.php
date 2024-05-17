@@ -326,6 +326,18 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function taskCreateCommitWithConfigFiles(): void
     {
+        // we try to use default branch for start, but when deploy branch exists, we use it as start
+        $startBranch = $this->gitlabProject->default_branch;
+
+        $branches = $this->gitLabService->gitLabManager()->repositories()->branches($this->gitlabProject->id);
+        $isBranchExists = collect($branches)->map(fn ($branch) => $branch['name'])->contains($this->currentStageInfo->name);
+        if ($isBranchExists) {
+            $startBranch = $this->currentStageInfo->name;
+
+            $this->logWriter->debug('Branch already exists, using it as default', ['branch' => $startBranch]);
+        }
+
+
         // https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
         $actions = collect([
             [
@@ -338,7 +350,7 @@ class ConfigureRepositoryJob implements ShouldQueue
                 "file_path" => "deploy.php",
                 "content" => (new DeployerPhpGenerator($this->projectDetails))->render($this->currentStageInfo),
             ],
-        ])->map(function (array $action) {
+        ])->map(function (array $action) use ($startBranch) {
             // skip deploy.php for frontend projects
             if ($this->isFrontend() && $action['file_path'] == 'deploy.php') {
                 return null;
@@ -347,7 +359,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             $generatedContent = $action['content'];
 
             // check if file exists
-            $currentContent = $this->gitLabService->getFileContent($this->gitlabProject, $action['file_path']);
+            $currentContent = $this->gitLabService->getFileContent($this->gitlabProject, $action['file_path'], $startBranch);
 
             // if current content is same with generated - skip
             if ($currentContent === $generatedContent) {
@@ -380,17 +392,6 @@ class ConfigureRepositoryJob implements ShouldQueue
             $this->logWriter->debug('branch response', ['branch' => $branch]);
 
             return;
-        }
-
-        // we try to use default branch for start, but when deploy branch exists, we use it as start
-        $startBranch = $this->gitlabProject->default_branch;
-
-        $branches = $this->gitLabService->gitLabManager()->repositories()->branches($this->gitlabProject->id);
-        $isBranchExists = collect($branches)->map(fn ($branch) => $branch['name'])->contains($this->currentStageInfo->name);
-        if ($isBranchExists) {
-            $startBranch = $this->currentStageInfo->name;
-
-            $this->logWriter->debug('Branch already exists, using it as default', ['branch' => $startBranch]);
         }
 
         // otherwise, create commit with new files

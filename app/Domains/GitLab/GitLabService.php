@@ -110,10 +110,10 @@ class GitLabService
         return !is_null($this->getFileContent($projectData, $path));
     }
 
-    public function getFileContent(ProjectData $projectData, string $path): ?string
+    public function getFileContent(ProjectData $projectData, string $path, ?string $branch = null): ?string
     {
-        return $this->executeWithExceptionHandler(function () use ($path, $projectData) {
-            $fileData = $this->gitLabManager()->repositoryFiles()->getFile($projectData->id, $path, $projectData->default_branch);
+        return $this->executeWithExceptionHandler(function () use ($branch, $path, $projectData) {
+            $fileData = $this->gitLabManager()->repositoryFiles()->getFile($projectData->id, $path, $branch ?: $projectData->default_branch);
 
             return base64_decode($fileData['content']) ?: null;
         });
