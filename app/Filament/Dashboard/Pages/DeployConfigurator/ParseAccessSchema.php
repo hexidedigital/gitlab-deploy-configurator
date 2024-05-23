@@ -248,9 +248,6 @@ class ParseAccessSchema extends Forms\Components\Grid
                     // get fresh configurations
                     $configurations = $this->retrieveConfigurations();
                     $parser->parseConfiguration($configurations);
-                    $set('contents.deploy_php', $parser->contentForDeployerScript($stageName));
-
-                    $set('../../contents.deploy_yml', $parser->contentForDeployPrepareConfig($stageName));
 
                     $notResolved = $parser->getNotResolved($stageName);
 
@@ -259,6 +256,10 @@ class ParseAccessSchema extends Forms\Components\Grid
 
                         $set('notResolved', $notResolved);
                     } else {
+                        $set('contents.deploy_php', $parser->contentForDeployerScript($stageName));
+
+                        $set('../../contents.deploy_yml', $parser->contentForDeployPrepareConfig($stageName));
+
                         $set('notResolved', null);
                     }
 
