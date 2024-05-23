@@ -389,20 +389,22 @@ class ParseAccessSchema extends Forms\Components\Grid
             ])
             ->schema(function (HasParserInfo $livewire) {
                 return [
-                    Forms\Components\Grid::make()->schema([
+                    Forms\Components\Grid::make()->lazy()->schema([
                         Forms\Components\Grid::make(1)
                             ->columnSpan(1)
                             ->schema([
-                                $livewire->getServerFieldset(),
+                                $livewire->getServerFieldsetWithInputs(),
                             ]),
 
                         Forms\Components\Grid::make(1)
                             ->columnSpan(1)
                             ->schema([
-                                $livewire->getMySQLFieldset(),
-                                $livewire->getSMTPFieldset(),
+                                $livewire->getMySQLFieldsetWithInputs(),
+                                $livewire->getSMTPFieldsetWithInputs(),
                             ]),
-                    ]),
+                    ])->afterStateUpdated(function () {
+                        //
+                    }),
                 ];
             });
     }
