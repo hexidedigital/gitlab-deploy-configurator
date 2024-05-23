@@ -76,6 +76,7 @@ class AccessParser
     {
         return $lines->filter()->skip(1)
             ->values()
+            ->prepend('port: 22')
             ->mapWithKeys(fn ($line) => $this->processAsKeyValueLine($line))
             ->toArray();
     }
