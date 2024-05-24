@@ -49,6 +49,10 @@
                 setTimeout(() => {
                     event.target.classList.remove('done');
                 }, 1000);
+                new FilamentNotification()
+                    .title('Copied!')
+                    .success()
+                    .send()
             }
         }">
             <div class="">
