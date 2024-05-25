@@ -6,9 +6,9 @@ namespace App\Domains\DeployConfigurator\DeploymentOptions\Options;
 
 final class Database implements BaseOption
 {
-    public readonly string $name;
-    public readonly string $login;
-    public readonly string $password;
+    public readonly ?string $name;
+    public readonly ?string $login;
+    public readonly ?string $password;
 
     public function __construct(array $source)
     {

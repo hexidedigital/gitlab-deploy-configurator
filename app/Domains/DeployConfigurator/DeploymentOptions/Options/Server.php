@@ -6,9 +6,9 @@ namespace App\Domains\DeployConfigurator\DeploymentOptions\Options;
 
 final class Server implements BaseOption
 {
-    public string $domain;
-    public string $host;
-    public string $login;
+    public ?string $domain;
+    public ?string $host;
+    public ?string $login;
     public ?string $password;
     public int $sshPort;
 

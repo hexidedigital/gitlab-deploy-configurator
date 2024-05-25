@@ -22,7 +22,7 @@ readonly class StageInfo
         return new self(
             name: $data['name'],
             options: StageOptions::makeFromArray($data['options']),
-            server: isset($data['server']) ? new Server($data['server']) : null,
+            server: isset($data['server']) ? new Server($data['server']) : new Server([]),
             database: isset($data['database']) ? new Database($data['database']) : null,
             mail: isset($data['mail']) ? new Mail($data['mail']) : null,
         );

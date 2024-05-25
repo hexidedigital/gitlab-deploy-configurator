@@ -31,6 +31,7 @@ use Filament\Support\Enums\MaxWidth;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 use NotificationChannels\Telegram\TelegramMessage;
 
 /**
@@ -177,6 +178,7 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                 ]),
 
             Forms\Components\Section::make('Configure notes')
+                ->description('You can copy-paste values to configure your IDE')
                 ->visible(fn () => $this->jobDispatched)
                 ->schema(function (DeployConfigBuilder $deployConfigBuilder) {
                     if (!$this->jobDispatched) {
@@ -191,6 +193,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                     $ciCdOptions = CiCdOptions::makeFromArray($configurations['ci_cd_options']);
                     $templateInfo = (new CiCdTemplateRepository())->getTemplateInfo($ciCdOptions->template_group, $ciCdOptions->template_key);
 
+                    $projectData = $this->resolveProject($configurations['projectInfo']['selected_id']);
+
                     return [
                         Forms\Components\View::make('deployer.helpful-suggestion')
                             ->viewData([
@@ -199,6 +203,8 @@ class DeployConfigurator extends Page implements HasForms, HasActions, HasParser
                                 'ciCdOptions' => $ciCdOptions,
                                 'isBackend' => $templateInfo->group->isBackend(),
                                 'templateInfo' => $templateInfo,
+                                'user' => Auth::user(),
+                                'projectUrl' => $projectData->web_url,
                             ]),
                     ];
                 }),
