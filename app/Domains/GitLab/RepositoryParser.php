@@ -31,6 +31,7 @@ class RepositoryParser
             'framework_version' => $laravelVersion,
             'is_laravel' => true,
             'admin_panel' => $adminPanel,
+            'uses_themes_package' => !is_null(data_get($composerJson, 'require.yaap/theme')),
         ];
     }
 

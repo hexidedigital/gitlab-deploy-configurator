@@ -14,6 +14,7 @@ readonly class CodeInfoDetails implements Arrayable
         // backend details
         public bool $isLaravel = false,
         public ?string $adminPanel = null,
+        public bool $usesThemesPackage = false,
         // frontend details
         public bool $isNode = false,
     ) {
@@ -27,6 +28,7 @@ readonly class CodeInfoDetails implements Arrayable
             frontendBuilder: data_get($data, 'frontend_builder'),
             isLaravel: data_get($data, 'is_laravel', false),
             adminPanel: data_get($data, 'admin_panel'),
+            usesThemesPackage: data_get($data, 'uses_themes_package'),
             isNode: data_get($data, 'is_node', false),
         );
     }
@@ -39,6 +41,7 @@ readonly class CodeInfoDetails implements Arrayable
             'frontend_builder' => $this->frontendBuilder,
             'is_laravel' => $this->isLaravel,
             'admin_panel' => $this->adminPanel,
+            'uses_themes_package' => $this->usesThemesPackage,
             'is_node' => $this->isNode,
         ];
     }

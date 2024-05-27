@@ -26,9 +26,22 @@ Build:
     paths:
       - public/js
       - public/css
+      - public/fonts
+    @if($projectDetails->codeInfo->usesThemesPackage)
       - public/themes
-      #- public/ckeditor
+    @endif
+    @if(in_array($projectDetails->codeInfo->repositoryTemplate, [
+        'islm-based-template',
+    ]))
+      - public/ckeditor
+      - public/vendor
+    @endif
+    @if(in_array($projectDetails->codeInfo->repositoryTemplate, [
+        'hd-based-template-8',
+        'old-hd-base-template',
+    ]))
       #- public/vendor
+    @endif
       - public/mix-manifest.json
 
 @endif
