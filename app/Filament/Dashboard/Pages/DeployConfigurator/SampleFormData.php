@@ -68,7 +68,7 @@ class SampleFormData
             'node_version' => '20',
             'build_folder' => 'dist',
             'enabled_stages' => [
-                CiCdOptions::PrepareStage => true,
+                CiCdOptions::PrepareStage => false,
                 CiCdOptions::BuildStage => true,
                 CiCdOptions::DeployStage => true,
             ],
