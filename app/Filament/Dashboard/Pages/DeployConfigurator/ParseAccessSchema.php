@@ -115,6 +115,7 @@ class ParseAccessSchema extends Forms\Components\Grid
                                 ->collapsed(),
 
                             $this->generateDeployFileDownloadSection()
+                                ->hidden()
                                 ->columnSpan(6)
                                 ->collapsed(),
                         ]),
@@ -169,6 +170,7 @@ class ParseAccessSchema extends Forms\Components\Grid
     {
         return Forms\Components\Section::make(str('Deploy configuration `.yml` for all stages')->markdown()->toHtmlString())
             ->description('If you want, you can download the configuration file for all stages at once')
+            ->hidden()
             // has at least one parsed stage
             ->visible(function (HasParserInfo $livewire, Forms\Get $get) {
                 $defaultState = $livewire->hasOneParsedStage();
@@ -257,7 +259,6 @@ class ParseAccessSchema extends Forms\Components\Grid
                         $set('notResolved', $notResolved);
                     } else {
                         $set('contents.deploy_php', $parser->contentForDeployerScript($stageName));
-
                         $set('../../contents.deploy_yml', $parser->contentForDeployPrepareConfig($stageName));
 
                         $set('notResolved', null);

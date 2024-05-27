@@ -33,6 +33,12 @@ class ParseAccess extends Page implements Forms\Contracts\HasForms, HasParserInf
      */
     public array $data = [];
 
+    public static function canAccess(): bool
+    {
+        // disable this page
+        return false;
+    }
+
     public function mount(): void
     {
         /** @var User $user */
