@@ -30,7 +30,5 @@ Build:
       #- public/ckeditor
       #- public/vendor
       - public/mix-manifest.json
-  rules:
-    - if: $CI_BUILD_STAGE != '0'
 
 @endif
