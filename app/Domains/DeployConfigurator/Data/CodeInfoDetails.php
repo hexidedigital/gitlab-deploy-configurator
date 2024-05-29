@@ -28,7 +28,7 @@ readonly class CodeInfoDetails implements Arrayable
             frontendBuilder: data_get($data, 'frontend_builder'),
             isLaravel: data_get($data, 'is_laravel', false),
             adminPanel: data_get($data, 'admin_panel'),
-            usesThemesPackage: data_get($data, 'uses_themes_package'),
+            usesThemesPackage: boolval(data_get($data, 'uses_themes_package')),
             isNode: data_get($data, 'is_node', false),
         );
     }
