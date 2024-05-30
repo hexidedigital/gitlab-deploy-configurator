@@ -381,8 +381,10 @@ class ConfigureRepositoryJob implements ShouldQueue
             return $action;
         })->values()->filter();
 
-        // if files without changes, just create branch
-        if ($actions->isEmpty()) {
+        $doNotUpdate = false; // todo
+
+        // if files without changes, or we do not need to change current files - just create branch to trigger pipeline
+        if ($actions->isEmpty() || $doNotUpdate) {
             $this->logWriter->info('No changes in config files');
 
             $this->logWriter->info("Creating branch '{$this->currentStageInfo->name}' for deployment");
