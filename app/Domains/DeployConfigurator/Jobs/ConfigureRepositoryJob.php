@@ -39,6 +39,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Stringable;
 use NotificationChannels\Telegram\TelegramMessage;
 use phpseclib3\Crypt\PublicKeyLoader;
 use phpseclib3\Net\SSH2;
@@ -395,10 +396,14 @@ class ConfigureRepositoryJob implements ShouldQueue
         }
 
         // otherwise, create commit with new files
+
+        $message = str("Configure deployment 🚀")
+            ->when($this->ciCdOptions->extra('use-prefix'), fn (Stringable $str) => $str->prepend("ci: "));
+
         $commit = $this->gitLabService->gitLabManager()->repositories()->createCommit($this->gitlabProject->id, [
             "branch" => $this->currentStageInfo->name,
             "start_branch" => $startBranch,
-            "commit_message" => "Configure deployment 🚀",
+            "commit_message" => $message,
             "author_name" => "Deploy Configurator Bot",
             "author_email" => "deploy-configurator-bot@hexide-digital.com",
             "actions" => $actions->all(),
