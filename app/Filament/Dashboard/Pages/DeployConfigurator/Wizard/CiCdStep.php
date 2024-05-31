@@ -37,43 +37,7 @@ class CiCdStep extends Forms\Components\Wizard\Step
 
                 $this->getCiCdStagesToggleFieldSet(),
 
-                Forms\Components\Fieldset::make('Template specific options')
-                    ->columnSpanFull()
-                    ->schema(function (Forms\Get $get) {
-                        $templateInfo = $this->getSelectedTemplateInfo($get('ci_cd_options.template_group'), $get('ci_cd_options.template_key'));
-
-                        $options = [];
-
-                        if ($this->canSelectNodeVersion($get, $templateInfo)) {
-                            $options[] = Forms\Components\TextInput::make('ci_cd_options.node_version')
-                                ->label('Node.js version')
-                                ->columnSpan(1)
-                                ->datalist(collect(CiCdOptions::getNodeVersions())->values())
-                                ->required();
-                        }
-
-                        if ($templateInfo?->hasBuildFolder) {
-                            $options[] = Forms\Components\TextInput::make('ci_cd_options.build_folder')
-                                ->label('Build folder')
-                                ->helperText('Which folder will be copies to server with rsync')
-                                ->columnSpan(1)
-                                ->datalist(['dist', 'build'])
-                                ->required();
-                        }
-
-                        if ($templateInfo?->usesPM2()) {
-                            $options[] = Forms\Components\TextInput::make('ci_cd_options.extra.pm2_name')
-                                ->label('App name')
-                                ->helperText('Name of the PM2 process to stop and start on deployment')
-                                ->columnSpan(1)
-                                ->required();
-                        }
-
-                        return $options ?: [
-                            Forms\Components\Placeholder::make('placeholder.no_options')
-                                ->label('No options available for this template'),
-                        ];
-                    }),
+                $this->getTemplateSpecificOptionsFieldset(),
 
                 $this->getStagesRepeater(),
             ]);
@@ -101,6 +65,9 @@ class CiCdStep extends Forms\Components\Wizard\Step
                 if ($templateInfo?->usesPM2()) {
                     $set('ci_cd_options.extra.pm2_name', str($project->name)->after('.')->beforeLast('.')->lower()->snake()->value());
                 }
+
+                /*override */
+                /*commit prefix */
             })
             ->required();
     }
@@ -169,6 +136,50 @@ class CiCdStep extends Forms\Components\Wizard\Step
                     ->helperText('Deploys to server')
                     ->disabled(),
             ]);
+    }
+
+    protected function getTemplateSpecificOptionsFieldset(): Forms\Components\Fieldset
+    {
+        return Forms\Components\Fieldset::make('Template specific options')
+            ->columnSpanFull()
+            ->schema(function (Forms\Get $get) {
+                $templateInfo = $this->getSelectedTemplateInfo(
+                    $get('ci_cd_options.template_group'),
+                    $get('ci_cd_options.template_key')
+                );
+
+                $options = [];
+
+                if ($this->canSelectNodeVersion($get, $templateInfo)) {
+                    $options[] = Forms\Components\TextInput::make('ci_cd_options.node_version')
+                        ->label('Node.js version')
+                        ->columnSpan(1)
+                        ->datalist(collect(CiCdOptions::getNodeVersions())->values())
+                        ->required();
+                }
+
+                if ($templateInfo?->hasBuildFolder) {
+                    $options[] = Forms\Components\TextInput::make('ci_cd_options.build_folder')
+                        ->label('Build folder')
+                        ->helperText('Which folder will be copies to server with rsync')
+                        ->columnSpan(1)
+                        ->datalist(['dist', 'build'])
+                        ->required();
+                }
+
+                if ($templateInfo?->usesPM2()) {
+                    $options[] = Forms\Components\TextInput::make('ci_cd_options.extra.pm2_name')
+                        ->label('App name')
+                        ->helperText('Name of the PM2 process to stop and start on deployment')
+                        ->columnSpan(1)
+                        ->required();
+                }
+
+                return $options ?: [
+                    Forms\Components\Placeholder::make('placeholder.no_options')
+                        ->label('No options available for this template'),
+                ];
+            });
     }
 
     protected function getStagesRepeater(): Forms\Components\Repeater
