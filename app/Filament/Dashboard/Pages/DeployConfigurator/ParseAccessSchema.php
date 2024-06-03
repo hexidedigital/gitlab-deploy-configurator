@@ -258,8 +258,8 @@ class ParseAccessSchema extends Forms\Components\Grid
 
                         $set('notResolved', $notResolved);
                     } else {
-                        $set('contents.deploy_php', $parser->contentForDeployerScript($stageName));
-                        $set('../../contents.deploy_yml', $parser->contentForDeployPrepareConfig($stageName));
+//                        $set('contents.deploy_php', $parser->contentForDeployerScript($stageName));
+//                        $set('../../contents.deploy_yml', $parser->contentForDeployPrepareConfig($stageName));
 
                         $set('notResolved', null);
                     }
