@@ -18,7 +18,7 @@ final class Server implements BaseOption
         $this->host = data_get($source, 'host');
         $this->login = data_get($source, 'login');
         $this->password = data_get($source, 'password');
-        $this->sshPort = intval(data_get($source, 'ssh-port')) ?: 22;
+        $this->sshPort = intval(data_get($source, 'ssh-port', data_get($source, 'port'))) ?: 22;
     }
 
     public function toArray(): array
