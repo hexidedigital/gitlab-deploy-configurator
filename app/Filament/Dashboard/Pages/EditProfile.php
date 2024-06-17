@@ -96,7 +96,7 @@ class EditProfile extends \Filament\Pages\Auth\EditProfile
                 try {
                     $me = $manager->users()->me();
 
-                    if ($get('gitlab_id') !== $me['id']) {
+                    if ((int)$get('gitlab_id') !== (int)$me['id']) {
                         Notification::make()
                             ->title('Detected token manipulation')
                             ->body(new HtmlString('The user id associated with the GitLab account does not match the id of the user with new token.'))
