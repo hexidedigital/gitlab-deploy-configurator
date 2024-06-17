@@ -24,6 +24,7 @@ Build:
     - npm run prod
   artifacts:
     paths:
+      - public/mix-manifest.json
       - public/js
       - public/css
       - public/fonts
@@ -42,6 +43,5 @@ Build:
     ]))
       #- public/vendor
     @endif
-      - public/mix-manifest.json
 
 @endif
