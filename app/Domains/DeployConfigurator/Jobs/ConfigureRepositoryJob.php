@@ -215,7 +215,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             'exception' => $exception->getMessage(),
         ]);
 
-        DeployConfigurationJobFailedEvent::dispatch($this->user, $this->gitlabProject, $exception);
+        DeployConfigurationJobFailedEvent::dispatch($this->user, $this->projectDetails, $exception);
     }
 
     private function sendSuccessNotification(): void
