@@ -387,11 +387,19 @@ class ConfigureRepositoryJob implements ShouldQueue
         if ($actions->isEmpty() || $doNotUpdate) {
             $this->logWriter->info('No changes in config files');
 
-            $this->logWriter->info("Creating branch '{$this->currentStageInfo->name}' for deployment");
+            if ($isBranchExists) {
+                $this->logWriter->info('Branch already exists.');
 
+                $this->logWriter->info('Triggering pipeline for existing branch');
+                $pipeline = $this->gitLabService->gitLabManager()->projects()->createPipeline($this->gitlabProject->id, $this->currentStageInfo->name);
+                $this->logWriter->debug('create pipeline response', ['pipeline' => $pipeline]);
+
+                return;
+            }
+
+            $this->logWriter->info("Creating branch '{$this->currentStageInfo->name}' for deployment");
             $branch = $this->gitLabService->gitLabManager()->repositories()
                 ->createBranch($this->gitlabProject->id, $this->currentStageInfo->name, $this->gitlabProject->default_branch);
-
             $this->logWriter->debug('branch response', ['branch' => $branch]);
 
             return;
