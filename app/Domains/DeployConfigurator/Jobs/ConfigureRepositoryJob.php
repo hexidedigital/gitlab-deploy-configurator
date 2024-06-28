@@ -539,10 +539,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             File::ensureDirectoryExists("{$this->deployFolder}/local_ssh");
 
             $identityFilePath = $this->state->getReplacements()->get('IDENTITY_FILE');
-            $isIdentityKeyExists = File::exists($identityFilePath) || File::exists("{$identityFilePath}.pub");
-            if (!$isIdentityKeyExists) {
-                $this->generateIdentityKey($identityFilePath, $this->user->email);
-            }
+            $this->generateIdentityKey($identityFilePath, $this->user->email);
 
             $identityFileContent = File::get($identityFilePath) ?: '';
         }
@@ -576,9 +573,23 @@ class ConfigureRepositoryJob implements ShouldQueue
 
     private function generateIdentityKey(string $identityFilePath, string $comment): void
     {
+        $isIdentityKeyExists = File::exists($identityFilePath) && File::exists("{$identityFilePath}.pub");
+        if ($isIdentityKeyExists) {
+            $this->logWriter->debug('SSH key already exists', [
+                'path' => $identityFilePath,
+                'comment' => $comment,
+            ]);
+
+            return;
+        }
+
         File::ensureDirectoryExists(File::dirname($identityFilePath));
 
         $command = ['ssh-keygen', '-t', 'rsa', '-N', '', "-f", $identityFilePath, '-C', $comment];
+
+        if (File::exists($identityFilePath)) {
+            $command[] = '-y';
+        }
 
         $status = (new Process($command, $this->deployFolder))
             ->setTimeout(0)
@@ -587,7 +598,7 @@ class ConfigureRepositoryJob implements ShouldQueue
             });
 
         if ($status !== 0) {
-            throw new RuntimeException('failed');
+            throw new RuntimeException('Failed to generate ssh-keys');
         }
     }
 
