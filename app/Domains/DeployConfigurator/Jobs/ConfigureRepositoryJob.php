@@ -797,6 +797,8 @@ class ConfigureRepositoryJob implements ShouldQueue
             '^DB_DATABASE=.*$' => 'DB_DATABASE={{DB_DATABASE}}',
             '^DB_USERNAME=.*$' => 'DB_USERNAME={{DB_USERNAME}}',
             '^DB_PASSWORD=.*$' => 'DB_PASSWORD="{{DB_PASSWORD}}"',
+
+            '^JWT_SECRET=.*$' => 'JWT_SECRET=' . Str::random(64),
         ]);
     }
 
