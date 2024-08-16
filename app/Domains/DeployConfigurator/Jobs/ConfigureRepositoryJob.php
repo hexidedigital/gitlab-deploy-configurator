@@ -410,6 +410,15 @@ class ConfigureRepositoryJob implements ShouldQueue
         $message = str("Configure deployment 🚀")
             ->when($this->ciCdOptions->extra('use-prefix'), fn (Stringable $str) => $str->prepend("ci: "));
 
+        $this->logWriter->debug('Creating commit', [
+            "branch" => $this->currentStageInfo->name,
+            "start_branch" => $startBranch,
+            "commit_message" => $message,
+            "author_name" => "Deploy Configurator Bot",
+            "author_email" => "deploy-configurator-bot@hexide-digital.com",
+            "actions" => $actions->all(),
+        ]);
+
         $commit = $this->gitLabService->gitLabManager()->repositories()->createCommit($this->gitlabProject->id, [
             "branch" => $this->currentStageInfo->name,
             "start_branch" => $startBranch,
