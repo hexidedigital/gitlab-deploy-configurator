@@ -3,7 +3,14 @@
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
+use Monolog\Level;
 use Monolog\Processor\PsrLogMessageProcessor;
+
+$appName = env('APP_NAME');
+
+// To prevent unexpected errors, when telegram token or chat id not specified
+// If disabled - telegram channel handler will be ignored
+$isTelegramLogEnabled = env('TELEGRAM_LOG_ENABLED', false);
 
 return [
 
@@ -127,6 +134,28 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        'telegram' => $isTelegramLogEnabled ? [
+            'driver' => 'monolog',
+            'handler' => \Monolog\Handler\FilterHandler::class,
+            'formatter' => \jacklul\MonologTelegramHandler\TelegramFormatter::class,
+            'formatter_with' => [
+                'format' => "<b>{$appName}</b>\n\n<b>%level_name%</b> (%channel%) [%date%]\n\n<pre>%message%</pre>\n\n<pre>%context%</pre><pre>%extra%</pre>",
+            ],
+
+            'with' => [
+                'handler' =>
+                    new \Monolog\Handler\BufferHandler(
+                        (new \App\Support\Logging\TelegramHandler(
+                            env('TELEGRAM_API_KEY'),
+                            env('TELEGRAM_CHANNEL'),
+                            env('TELEGRAM_CHANNEL_TREAD'),
+                        )),
+                        bufferLimit: 5,
+                        level: env('TELEGRAM_LOG_LEVEL', Level::Notice),
+                        flushOnOverflow: true
+                    ),
+            ],
+        ] : [],
     ],
 
 ];
